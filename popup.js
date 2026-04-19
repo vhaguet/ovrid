@@ -1,3 +1,91 @@
+const CONFIG_STORAGE_KEY = "__ff_config_settings";
+
+const SETTINGS_FIELDS = [
+  { key: "defaultHost",         label: "Hôte de l'API" },
+  { key: "settingsPath",        label: "Chemin de l'endpoint" },
+  { key: "dataPath",            label: "Chemin des flags (JSON)" },
+  { key: "itemIdKey",           label: "Clé identifiant" },
+  { key: "itemValueKey",        label: "Clé valeur" },
+  { key: "textPath",            label: "Chemin des textes (JSON)" },
+  { key: "storageKeyLast",      label: "Clé cache (localStorage)", advanced: true },
+  { key: "storageKeyOverrides", label: "Clé overrides (localStorage)", advanced: true },
+];
+
+function loadConfig() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(CONFIG_STORAGE_KEY, (result) => {
+      resolve({ ...FF_CONFIG, ...(result[CONFIG_STORAGE_KEY] || {}) });
+    });
+  });
+}
+
+function saveConfig(config) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: config }, resolve);
+  });
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function renderSettings(config) {
+  const panel = document.getElementById("settings-panel");
+
+  const renderField = (field) => {
+    const val        = config[field.key] ?? "";
+    const isModified = String(val) !== String(FF_CONFIG[field.key] ?? "");
+    return `
+      <div class="settings-field">
+        <div class="settings-field-label">
+          <label for="cfg-${field.key}">${field.label}</label>
+          ${isModified ? `<button class="btn-field-reset" data-key="${field.key}" title="Réinitialiser">↺</button>` : ""}
+        </div>
+        <input type="text" id="cfg-${field.key}"
+          class="settings-input${isModified ? " modified" : ""}"
+          data-key="${field.key}"
+          value="${escapeAttr(val)}"
+          spellcheck="false" autocomplete="off">
+      </div>`;
+  };
+
+  const regular  = SETTINGS_FIELDS.filter((f) => !f.advanced);
+  const advanced = SETTINGS_FIELDS.filter((f) =>  f.advanced);
+
+  const renderToggleRow = (label, key) => {
+    const isOn = config[key] !== false;
+    return `
+      <div class="settings-field settings-toggle-row">
+        <span class="settings-toggle-label">${label}</span>
+        <div class="toggle-wrap">
+          <span class="toggle-label ${isOn ? "on" : "off"}">${isOn ? "ON" : "OFF"}</span>
+          <label class="toggle">
+            <input type="checkbox" class="settings-toggle" data-key="${key}" ${isOn ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>`;
+  };
+
+  panel.innerHTML = `
+    <div class="settings-content">
+      <div class="settings-section-divider">Overrides</div>
+      ${renderToggleRow("Overrides de toggles", "overridesEnabled")}
+      ${renderToggleRow("Overrides de texte",   "textOverridesEnabled")}
+      ${regular.map(renderField).join("")}
+      <div class="settings-section-divider">Avancé</div>
+      ${advanced.map(renderField).join("")}
+    </div>`;
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+
+let currentState  = null;
+let activeConfig  = null;
+let settingsOpen  = false;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 async function getTabId() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab?.id;
@@ -32,6 +120,36 @@ function filterState(state, query) {
       : null,
   };
 }
+
+function searchQuery() {
+  return document.getElementById("search-input")?.value.trim() ?? "";
+}
+
+// ── Settings panel ─────────────────────────────────────────────────────────
+
+function showSettings() {
+  settingsOpen = true;
+  renderSettings(activeConfig);
+  document.getElementById("settings-panel").classList.remove("hidden");
+  document.getElementById("main-content").classList.add("hidden");
+  document.getElementById("search-bar").classList.add("hidden");
+  document.getElementById("btn-settings").classList.add("active");
+  document.getElementById("btn-reset").style.display = "none";
+}
+
+function hideSettings() {
+  settingsOpen = false;
+  document.getElementById("settings-panel").classList.add("hidden");
+  document.getElementById("main-content").classList.remove("hidden");
+  document.getElementById("btn-settings").classList.remove("active");
+  document.getElementById("btn-reset").style.display = "";
+  if (currentState) {
+    const hasData = currentState.lastFlags !== null || currentState.lastText !== null;
+    document.getElementById("search-bar").classList.toggle("hidden", !hasData);
+  }
+}
+
+// ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
   const { lastFlags, overrides, lastText, textOverrides, config } = filterState(state, query);
@@ -161,12 +279,6 @@ function renderFlags(state, query = "") {
   }
 }
 
-let currentState = null;
-
-function searchQuery() {
-  return document.getElementById("search-input")?.value.trim() ?? "";
-}
-
 async function refresh(tabId) {
   currentState = await msg(tabId, { type: "GET_STATE" });
   renderFlags(currentState, searchQuery());
@@ -182,15 +294,50 @@ function showLoading() {
     </div>`;
 }
 
+// ── Init ───────────────────────────────────────────────────────────────────
+
 async function init() {
+  activeConfig = await loadConfig();
+
   const tabId = await getTabId();
   if (!tabId) return;
+
+  // Settings toggle
+  document.getElementById("btn-settings").addEventListener("click", () => {
+    if (settingsOpen) hideSettings();
+    else showSettings();
+  });
+
+  // Settings: save on any change (text input blur or toggle click)
+  document.getElementById("settings-panel").addEventListener("change", async (e) => {
+    const input  = e.target.closest("input.settings-input");
+    const toggle = e.target.closest("input.settings-toggle");
+    if (!input && !toggle) return;
+
+    if (input)  activeConfig = { ...activeConfig, [input.dataset.key]:  input.value };
+    if (toggle) activeConfig = { ...activeConfig, [toggle.dataset.key]: toggle.checked };
+
+    await saveConfig(activeConfig);
+    renderSettings(activeConfig);
+    const reloadText = document.getElementById("reload-text");
+    reloadText.textContent = "Rechargez pour appliquer les paramètres";
+    document.getElementById("reload-bar").classList.remove("hidden");
+  });
+
+  // Settings: reset individual field to FF_CONFIG default
+  document.getElementById("settings-panel").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".btn-field-reset");
+    if (!btn) return;
+    const key = btn.dataset.key;
+    activeConfig = { ...activeConfig, [key]: FF_CONFIG[key] };
+    await saveConfig(activeConfig);
+    renderSettings(activeConfig);
+  });
 
   showLoading();
 
   let state;
   try {
-    // Always fetch fresh on popup open — content-bridge uses page session cookies
     state = await msg(tabId, { type: "FETCH_FLAGS" });
   } catch {
     document.getElementById("main-content").innerHTML = `
@@ -260,7 +407,7 @@ async function init() {
     await refresh(tabId);
   });
 
-  // Reload page so the overrides are applied on the next fetch
+  // Reload page
   document.getElementById("btn-reload").addEventListener("click", async () => {
     await msg(tabId, { type: "RELOAD_PAGE" });
     window.close();

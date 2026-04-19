@@ -31,7 +31,7 @@ Supporte les overrides de **toggles booléens** (tableau d'items) et de **valeur
 ┌────────────────┴──────┐  ┌─────────┴───────────────┐
 │       popup.js        │  │      background.js       │
 │  affiche les items    │  │  met à jour le badge     │
-│  envoie les toggles   │  │  de l'icône extension    │
+│  envoie les toggles   │  │                          │
 └───────────────────────┘  └─────────────────────────┘
 ```
 
@@ -54,9 +54,17 @@ Les overrides s'appliquent au **prochain rechargement** de la page.
 
 ---
 
-## Configuration (`config.js`)
+## Configuration
 
-`config.js` est **ignoré par git** — copier `config.example.js` et renseigner les valeurs réelles.
+### Via le popup (recommandé)
+
+Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. Toutes les valeurs de `FF_CONFIG` sont éditables en direct et sauvegardées dans `chrome.storage.local`. Les modifications prennent effet au prochain rechargement de la page.
+
+Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par défaut de `config.js`.
+
+### Via `config.js`
+
+`config.js` est **ignoré par git** — copier `config.example.js` et renseigner les valeurs réelles. Ces valeurs servent de **defaults** : si aucun paramètre n'a été sauvegardé dans le popup, c'est `config.js` qui s'applique.
 
 ```js
 var FF_CONFIG = {
@@ -76,8 +84,6 @@ var FF_CONFIG = {
   itemValueKey: "enabled",
 
   // Chemin vers l'objet contenant les propriétés texte à overrider (optionnel)
-  // Toutes les valeurs scalaires (string, number, boolean) à la racine de cet objet
-  // sont affichées dans une section dédiée du popup.
   textPath: "data",
 
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
@@ -94,16 +100,14 @@ var FF_CONFIG = {
 | `{ featureFlipping: [...] }` | `"featureFlipping"` |
 | `{ config: { modules: { items: [...] } } }` | `"config.modules.items"` |
 
-Les champs `dataPath`, `itemIdKey`, `itemValueKey` et `textPath` sont **optionnels** — ils ont des valeurs par défaut (`"data.module_bar"`, `"id"`, `"enabled"`, `""`).
-
 ### Changer d'instance
 
-Deux endroits à modifier :
+Pour pointer sur un autre host :
 
-1. **`config.js`** — mettre à jour `defaultHost` (et `settingsPath` si besoin)
-2. **`manifest.json`** — mettre à jour le champ `matches` du content script ISOLATED world (`config.js` + `content-bridge.js`)
+1. **Popup → Paramètres** — modifier `Hôte de l'API` et `Chemin de l'endpoint` (ou éditer `config.js`)
+2. **`manifest.json`** — mettre à jour le champ `matches` du content script ISOLATED world
 
-> Le manifest ne peut pas lire `config.js` dynamiquement (limitation MV3). Le content script MAIN world utilise `<all_urls>` et vérifie l'URL cible à l'exécution via `localStorage` — seul le script ISOLATED world a besoin du match précis pour charger `config.js`.
+> Le manifest ne peut pas lire `config.js` dynamiquement (limitation MV3). Le content script MAIN world utilise `<all_urls>` et vérifie l'URL cible à l'exécution via `localStorage` — seul le script ISOLATED world a besoin du match précis.
 
 ---
 
@@ -141,7 +145,7 @@ Quand l'app appelle l'endpoint configuré (`settingsPath`) :
 4. `setByPath` reconstruit le JSON complet pour chaque section modifiée
 5. L'app reçoit la réponse patchée
 
-> **Pourquoi `"world": "MAIN"` dans le manifest ?**  
+> **Pourquoi `"world": "MAIN"` dans le manifest ?**
 > Sans ça, le content script tourne dans un sandbox isolé où `window.fetch` est une copie — wrapper cette copie n'affecte pas la page. `"world": "MAIN"` est l'équivalent de `@run-at document-start` de Tampermonkey.
 
 ---
@@ -160,17 +164,31 @@ Quand l'app appelle l'endpoint configuré (`settingsPath`) :
 | `__ff_value_key` | string | propriété à overrider sur les items |
 | `__ff_text_path` | string | chemin vers l'objet texte dans le JSON |
 
-Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarrage à partir de `FF_CONFIG`, puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
+Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarrage à partir de la config mergée (`chrome.storage.local` + `config.js`), puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
 
 ---
 
-## Badge de l'icône (`background.js`)
+## Paramètres (`chrome.storage.local`)
 
-Le service worker écoute les messages `UPDATE_BADGE` envoyés par `content-bridge.js` et met à jour le badge de l'icône via `chrome.action.setBadgeText`. Le badge affiche en rouge le nombre total d'overrides actifs (toggles + texte) sur l'onglet courant, et disparaît quand tout est réinitialisé.
+Les paramètres modifiés via le popup sont stockés dans `chrome.storage.local` sous la clé `__ff_config_settings`. Au démarrage, `content-bridge.js` merge ces valeurs avec les defaults de `config.js` (les valeurs du storage ont priorité).
 
-`content-bridge.js` envoie ce message :
-- au chargement de chaque page (état initial depuis `localStorage`)
-- après chaque ajout, modification ou suppression d'override
+La réinitialisation champ par champ (bouton ↺) ou globale supprime les surcharges et revient aux defaults de `config.js`.
+
+---
+
+## Icône
+
+Les fichiers `icons/icon16.png`, `icons/icon48.png` et `icons/icon128.png` sont référencés dans `manifest.json` (champs `icons` et `action.default_icon`).
+
+Pour les régénérer (après modification du design) :
+
+```bash
+node generate-icons.js
+```
+
+Le script `generate-icons.js` n'a aucune dépendance externe — il génère les PNGs via les modules natifs Node.js (`zlib`). Le fichier source `icons/icon.svg` sert de référence de design.
+
+Le badge rouge (nombre d'overrides actifs) est mis à jour par `content-bridge.js` via un message `UPDATE_BADGE` après chaque modification.
 
 ---
 
@@ -187,7 +205,7 @@ Le service worker écoute les messages `UPDATE_BADGE` envoyés par `content-brid
 | `RESET_ALL` | Supprime `__ff_overrides` et `__ff_text_overrides` |
 | `RELOAD_PAGE` | Appelle `window.location.reload()` |
 
-> **Pourquoi `FETCH_FLAGS` passe par le content script ?**  
+> **Pourquoi `FETCH_FLAGS` passe par le content script ?**
 > Le popup est une page à part — ses requêtes `fetch` ne portent pas les cookies de session. Le content script, lui, s'exécute dans le contexte de la page et en hérite.
 
 ---
@@ -195,14 +213,17 @@ Le service worker écoute les messages `UPDATE_BADGE` envoyés par `content-brid
 ## Structure des fichiers
 
 ```
-chrome-extension/
+ovrid/
 ├── config.example.js    # template de configuration (commité)
 ├── config.js            # configuration réelle — ignoré par git
 ├── manifest.json        # déclaration MV3 — permissions, content scripts, service worker
-├── background.js        # service worker — badge de l'icône
+├── background.js        # service worker — badge
+├── generate-icons.js    # script Node.js — génère les PNGs (sans dépendances)
 ├── content-inject.js    # MAIN world — intercepte fetch & XHR
 ├── content-bridge.js    # ISOLATED world — pont popup ↔ localStorage, badge
 ├── popup.html           # structure du popup
 ├── popup.css            # styles du popup
-└── popup.js             # logique UI du popup
+├── popup.js             # logique UI du popup (flags + settings)
+└── icons/
+    └── icon.svg         # source de design de l'icône
 ```

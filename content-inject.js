@@ -11,11 +11,13 @@
   // Config written by content-bridge.js (ISOLATED world) at document_start via localStorage
   function getCfg() {
     return {
-      settingsPath: localStorage.getItem("__ff_settings_path"),
-      dataPath:     localStorage.getItem("__ff_data_path"),
-      idKey:        localStorage.getItem("__ff_id_key"),
-      valueKey:     localStorage.getItem("__ff_value_key"),
-      textPath:     localStorage.getItem("__ff_text_path"),
+      settingsPath:         localStorage.getItem("__ff_settings_path"),
+      dataPath:             localStorage.getItem("__ff_data_path"),
+      idKey:                localStorage.getItem("__ff_id_key"),
+      valueKey:             localStorage.getItem("__ff_value_key"),
+      textPath:             localStorage.getItem("__ff_text_path"),
+      overridesEnabled:     localStorage.getItem("__ff_overrides_enabled")  !== "false",
+      textOverridesEnabled: localStorage.getItem("__ff_text_ovr_enabled")   !== "false",
     };
   }
 
@@ -56,12 +58,12 @@
 
   // Apply both array (toggle) overrides and text overrides — returns patched JSON or null if unchanged
   function applyOverrides(json) {
-    const { dataPath, idKey, valueKey, textPath } = getCfg();
+    const { dataPath, idKey, valueKey, textPath, overridesEnabled, textOverridesEnabled } = getCfg();
     let result = json;
     let changed = false;
 
     // Array (toggle) overrides
-    if (dataPath) {
+    if (dataPath && overridesEnabled) {
       const items = getByPath(json, dataPath);
       if (Array.isArray(items)) {
         localStorage.setItem(KEY_LAST, JSON.stringify(items));
@@ -79,7 +81,7 @@
     }
 
     // Text overrides
-    if (textPath) {
+    if (textPath && textOverridesEnabled) {
       const textObj = getByPath(json, textPath);
       if (textObj && typeof textObj === "object" && !Array.isArray(textObj)) {
         // Save only primitive properties for the popup to display
