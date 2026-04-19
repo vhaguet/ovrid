@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Ovrid",
+  "version": "1.0.0",
+  "description": "Intercept HTTP responses and override any JSON property — booleans, text values, and more",
+  "permissions": ["activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Feature Flipper"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["config.js", "content-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

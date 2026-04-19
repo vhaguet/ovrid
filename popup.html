@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Feature Flipper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+      <h1>Feature Flipper</h1>
+    </div>
+    <button id="btn-reset" class="btn-reset" title="Réinitialiser tous les overrides">Reset all</button>
+  </header>
+
+  <div id="status-bar" class="status-bar hidden">
+    <span class="dot"></span>
+    <span id="status-text"></span>
+  </div>
+
+  <div id="reload-bar" class="reload-bar hidden">
+    <span>Rechargez pour appliquer les overrides</span>
+    <button id="btn-reload">⟳ Recharger</button>
+  </div>
+
+  <main id="main-content">
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <p>Aucun feature flag détecté.</p>
+      <p class="hint">Naviguez sur une page qui appelle l'API feature flags, puis rouvrez l'extension.</p>
+    </div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
