@@ -238,6 +238,64 @@ input:checked + .slider::before {
   color: #000;
 }
 
+/* ── Search bar ── */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.search-bar.hidden { display: none; }
+
+.search-bar svg {
+  width: 13px;
+  height: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.search-bar input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.search-bar input::placeholder { color: var(--text-muted); }
+.search-bar input::-webkit-search-cancel-button { cursor: pointer; }
+
+/* ── Text override controls ── */
+.text-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.text-override-input {
+  width: 130px;
+  padding: 3px 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.text-override-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.text-override-input.overridden {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 1s linear infinite; opacity: 0.4; }
 

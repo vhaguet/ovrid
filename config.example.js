@@ -18,6 +18,12 @@ var FF_CONFIG = {
   // Propriété à modifier sur chaque item
   itemValueKey: "enabled",
 
+  // Chemin vers l'objet contenant les propriétés texte à overrider (notation pointée)
+  // Toutes les valeurs primitives (string, number, boolean) à la racine de cet objet seront affichées.
+  // Laisser vide ou omettre pour désactiver la section texte.
+  // Exemple : "data" exposera data.project_name, data.project_url, etc.
+  textPath: "data",
+
   // Clés localStorage internes (modifier uniquement en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",

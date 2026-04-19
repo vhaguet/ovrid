@@ -1,6 +1,8 @@
-# Feature Flipper — Extension Chrome
+# Ovrid — Extension Chrome
 
 Extension Chrome permettant de visualiser et surcharger en temps réel des propriétés d'une réponse HTTP JSON, sans modifier le code source ni l'API.
+
+Supporte les overrides de **toggles booléens** (tableau d'items) et de **valeurs texte** (propriétés scalaires d'un objet).
 
 ---
 
@@ -15,19 +17,22 @@ Extension Chrome permettant de visualiser et surcharger en temps réel des propr
 │         réponse patchée  ◄──     lit localStorage   │
 └────────────────────────┬────────────────────────────┘
                          │ localStorage
-                         │ __ff_last_flags
-                         │ __ff_overrides
+                         │ __ff_last_flags / __ff_last_text
+                         │ __ff_overrides  / __ff_text_overrides
                          │ __ff_settings_path / __ff_data_path / …
 ┌────────────────────────┴────────────────────────────┐
 │              content-bridge.js                      │
 │              (ISOLATED world)                       │
 │  lit/écrit localStorage · répond aux messages popup │
-└────────────────────────┬────────────────────────────┘
-                         │ chrome.tabs.sendMessage
-┌────────────────────────┴────────────────────────────┐
-│                    popup.js                         │
-│  affiche les items · envoie les toggles             │
-└─────────────────────────────────────────────────────┘
+│  notifie background.js pour le badge               │
+└────────────────┬───────────────────┬────────────────┘
+                 │ chrome.tabs       │ chrome.runtime
+                 │ .sendMessage      │ .sendMessage
+┌────────────────┴──────┐  ┌─────────┴───────────────┐
+│       popup.js        │  │      background.js       │
+│  affiche les items    │  │  met à jour le badge     │
+│  envoie les toggles   │  │  de l'icône extension    │
+└───────────────────────┘  └─────────────────────────┘
 ```
 
 ---
@@ -70,6 +75,11 @@ var FF_CONFIG = {
   // Propriété à modifier sur chaque item
   itemValueKey: "enabled",
 
+  // Chemin vers l'objet contenant les propriétés texte à overrider (optionnel)
+  // Toutes les valeurs scalaires (string, number, boolean) à la racine de cet objet
+  // sont affichées dans une section dédiée du popup.
+  textPath: "data",
+
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",
@@ -84,7 +94,7 @@ var FF_CONFIG = {
 | `{ featureFlipping: [...] }` | `"featureFlipping"` |
 | `{ config: { modules: { items: [...] } } }` | `"config.modules.items"` |
 
-Les champs `dataPath`, `itemIdKey` et `itemValueKey` sont **optionnels** — ils valent respectivement `"data.module_bar"`, `"id"` et `"enabled"` par défaut.
+Les champs `dataPath`, `itemIdKey`, `itemValueKey` et `textPath` sont **optionnels** — ils ont des valeurs par défaut (`"data.module_bar"`, `"id"`, `"enabled"`, `""`).
 
 ### Changer d'instance
 
@@ -126,10 +136,10 @@ window.fetch = async function (...args) {
 Quand l'app appelle l'endpoint configuré (`settingsPath`) :
 
 1. Le wrapper intercepte la réponse
-2. `getByPath(json, dataPath)` extrait le tableau cible
-3. Les overrides stockés dans `localStorage` sont appliqués sur `itemValueKey`
-4. `setByPath(json, dataPath, patched)` reconstruit le JSON complet
-5. L'app reçoit la réponse modifiée — les items overridés sont déjà patchés
+2. **Overrides de tableau** : `getByPath(json, dataPath)` extrait le tableau cible, les overrides de `__ff_overrides` sont appliqués sur `itemValueKey`
+3. **Overrides texte** : `getByPath(json, textPath)` extrait l'objet cible, les overrides de `__ff_text_overrides` sont fusionnés
+4. `setByPath` reconstruit le JSON complet pour chaque section modifiée
+5. L'app reçoit la réponse patchée
 
 > **Pourquoi `"world": "MAIN"` dans le manifest ?**  
 > Sans ça, le content script tourne dans un sandbox isolé où `window.fetch` est une copie — wrapper cette copie n'affecte pas la page. `"world": "MAIN"` est l'équivalent de `@run-at document-start` de Tampermonkey.
@@ -140,14 +150,27 @@ Quand l'app appelle l'endpoint configuré (`settingsPath`) :
 
 | Clé | Contenu | Rôle |
 |---|---|---|
-| `__ff_last_flags` | tableau brut de l'API | référence originale affichée dans le popup |
-| `__ff_overrides` | `{ [itemId]: value }` | overrides actifs — lu par `content-inject.js` à chaque interception |
+| `__ff_last_flags` | tableau brut de l'API | référence originale des items toggle affichée dans le popup |
+| `__ff_overrides` | `{ [itemId]: value }` | overrides de toggles — lu par `content-inject.js` |
+| `__ff_last_text` | `{ [key]: value }` | valeurs scalaires originales à la racine de `textPath` |
+| `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
 | `__ff_settings_path` | string | chemin de l'endpoint |
 | `__ff_data_path` | string | chemin vers le tableau dans le JSON |
 | `__ff_id_key` | string | clé d'identification des items |
-| `__ff_value_key` | string | propriété à overrider |
+| `__ff_value_key` | string | propriété à overrider sur les items |
+| `__ff_text_path` | string | chemin vers l'objet texte dans le JSON |
 
 Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarrage à partir de `FF_CONFIG`, puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
+
+---
+
+## Badge de l'icône (`background.js`)
+
+Le service worker écoute les messages `UPDATE_BADGE` envoyés par `content-bridge.js` et met à jour le badge de l'icône via `chrome.action.setBadgeText`. Le badge affiche en rouge le nombre total d'overrides actifs (toggles + texte) sur l'onglet courant, et disparaît quand tout est réinitialisé.
+
+`content-bridge.js` envoie ce message :
+- au chargement de chaque page (état initial depuis `localStorage`)
+- après chaque ajout, modification ou suppression d'override
 
 ---
 
@@ -155,11 +178,13 @@ Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarra
 
 | Message | Action |
 |---|---|
-| `FETCH_FLAGS` | Fait un `fetch(settingsPath)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastFlags, overrides, config }` |
-| `GET_STATE` | Lit `localStorage` — renvoie `{ lastFlags, overrides, config }` |
+| `FETCH_FLAGS` | Fait un `fetch(settingsPath)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastFlags, overrides, lastText, textOverrides, config }` |
+| `GET_STATE` | Lit `localStorage` — renvoie `{ lastFlags, overrides, lastText, textOverrides, config }` |
 | `SET_OVERRIDE` | Écrit `overrides[id] = value` dans `localStorage` |
-| `CLEAR_OVERRIDE` | Supprime un override individuel |
-| `RESET_ALL` | Supprime `__ff_overrides` entièrement |
+| `CLEAR_OVERRIDE` | Supprime un override de toggle individuel |
+| `SET_TEXT_OVERRIDE` | Écrit `textOverrides[key] = value` dans `localStorage` |
+| `CLEAR_TEXT_OVERRIDE` | Supprime un override texte individuel |
+| `RESET_ALL` | Supprime `__ff_overrides` et `__ff_text_overrides` |
 | `RELOAD_PAGE` | Appelle `window.location.reload()` |
 
 > **Pourquoi `FETCH_FLAGS` passe par le content script ?**  
@@ -173,9 +198,10 @@ Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarra
 chrome-extension/
 ├── config.example.js    # template de configuration (commité)
 ├── config.js            # configuration réelle — ignoré par git
-├── manifest.json        # déclaration MV3 — permissions, content scripts
+├── manifest.json        # déclaration MV3 — permissions, content scripts, service worker
+├── background.js        # service worker — badge de l'icône
 ├── content-inject.js    # MAIN world — intercepte fetch & XHR
-├── content-bridge.js    # ISOLATED world — pont popup ↔ localStorage
+├── content-bridge.js    # ISOLATED world — pont popup ↔ localStorage, badge
 ├── popup.html           # structure du popup
 ├── popup.css            # styles du popup
 └── popup.js             # logique UI du popup

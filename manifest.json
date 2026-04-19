@@ -3,6 +3,9 @@
   "name": "Ovrid",
   "version": "1.0.0",
   "description": "Intercept HTTP responses and override any JSON property — booleans, text values, and more",
+  "background": {
+    "service_worker": "background.js"
+  },
   "permissions": ["activeTab"],
   "host_permissions": ["<all_urls>"],
   "action": {
