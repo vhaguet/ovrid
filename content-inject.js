@@ -1,4 +1,4 @@
-// MAIN world — intercepts fetch & XHR and overrides a configurable array in the JSON response
+// MAIN world — intercepts fetch & XHR and overrides configurable arrays in the JSON response
 (function () {
   if (window.__ff_injected) return;
   window.__ff_injected = true;
@@ -11,11 +11,8 @@
   // Config written by content-bridge.js (ISOLATED world) at document_start via localStorage
   function getCfg() {
     return {
-      settingsPath:         localStorage.getItem("__ff_settings_path"),
-      dataPath:             localStorage.getItem("__ff_data_path"),
-      idKey:                localStorage.getItem("__ff_id_key"),
-      valueKey:             localStorage.getItem("__ff_value_key"),
-      textPath:             localStorage.getItem("__ff_text_path"),
+      settingsUrl:          localStorage.getItem("__ff_settings_url"),
+      rootPath:             localStorage.getItem("__ff_root_path") || "data",
       overridesEnabled:     localStorage.getItem("__ff_overrides_enabled")  !== "false",
       textOverridesEnabled: localStorage.getItem("__ff_text_ovr_enabled")   !== "false",
     };
@@ -23,6 +20,7 @@
 
   // Resolve a dot-notation path in an object
   function getByPath(obj, path) {
+    if (!path) return obj;
     return path.split(".").reduce((acc, k) => acc?.[k], obj);
   }
 
@@ -42,7 +40,9 @@
   function isTarget(url) {
     if (typeof url !== "string") return false;
     try {
-      return new URL(url, location.origin).pathname === getCfg().settingsPath;
+      const target = new URL(getCfg().settingsUrl);
+      const req    = new URL(url, location.origin);
+      return req.host === target.host && req.pathname === target.pathname;
     } catch {
       return false;
     }
@@ -56,47 +56,76 @@
     try { return JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}"); } catch { return {}; }
   }
 
+  function detectIdKey(obj) {
+    return ["id", "key", "name"].find((k) => typeof obj[k] === "string")
+      ?? Object.keys(obj).find((k) => typeof obj[k] === "string");
+  }
+
+  function detectValueKey(obj) {
+    return ["enabled", "active", "on", "isEnabled", "is_enabled"].find((k) => typeof obj[k] === "boolean")
+      ?? Object.keys(obj).find((k) => typeof obj[k] === "boolean");
+  }
+
   // Apply both array (toggle) overrides and text overrides — returns patched JSON or null if unchanged
   function applyOverrides(json) {
-    const { dataPath, idKey, valueKey, textPath, overridesEnabled, textOverridesEnabled } = getCfg();
+    const { rootPath, overridesEnabled, textOverridesEnabled } = getCfg();
     let result = json;
     let changed = false;
 
-    // Array (toggle) overrides
-    if (dataPath && overridesEnabled) {
-      const items = getByPath(json, dataPath);
-      if (Array.isArray(items)) {
-        localStorage.setItem(KEY_LAST, JSON.stringify(items));
-        const overrides = getOverrides();
-        if (Object.keys(overrides).length) {
-          const patched = items.map((item) =>
-            item[idKey] in overrides
-              ? { ...item, [valueKey]: overrides[item[idKey]] }
-              : item,
-          );
-          result = setByPath(result, dataPath, patched);
-          changed = true;
+    const rootObj = getByPath(json, rootPath);
+    if (!rootObj || typeof rootObj !== "object" || Array.isArray(rootObj)) return null;
+
+    const overrides     = getOverrides();
+    const textOverrides = getTextOverrides();
+    const detectedSections = {};
+    const detectedText     = {};
+
+    for (const [key, val] of Object.entries(rootObj)) {
+      if (Array.isArray(val) && val.length > 0 && val[0] !== null && typeof val[0] === "object") {
+        const idKey    = detectIdKey(val[0]);
+        const valueKey = detectValueKey(val[0]);
+        if (!idKey || !valueKey) continue;
+
+        detectedSections[key] = { idKey, valueKey, items: val };
+
+        if (overridesEnabled) {
+          const sectionOverrides = overrides[key] || {};
+          if (Object.keys(sectionOverrides).length) {
+            const patched = val.map((item) =>
+              item[idKey] in sectionOverrides
+                ? { ...item, [valueKey]: sectionOverrides[item[idKey]] }
+                : item,
+            );
+            result = setByPath(result, `${rootPath}.${key}`, patched);
+            changed = true;
+          }
         }
+      } else if (val !== null && !Array.isArray(val) && typeof val !== "object") {
+        detectedText[key] = val;
       }
     }
 
+    // Cache for popup
+    if (Object.keys(detectedSections).length) {
+      localStorage.setItem(KEY_LAST, JSON.stringify(detectedSections));
+    }
+    if (Object.keys(detectedText).length) {
+      localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(detectedText));
+    }
+
     // Text overrides
-    if (textPath && textOverridesEnabled) {
-      const textObj = getByPath(json, textPath);
-      if (textObj && typeof textObj === "object" && !Array.isArray(textObj)) {
-        // Save only primitive properties for the popup to display
-        const primitives = Object.fromEntries(
-          Object.entries(textObj).filter(([, v]) => v !== null && typeof v !== "object"),
-        );
-        localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(primitives));
-        const textOverrides = getTextOverrides();
-        if (Object.keys(textOverrides).length) {
-          result = setByPath(result, textPath, {
-            ...getByPath(result, textPath),
-            ...textOverrides,
-          });
-          changed = true;
+    if (textOverridesEnabled && Object.keys(textOverrides).length) {
+      const rootCopy = { ...getByPath(result, rootPath) };
+      let textChanged = false;
+      for (const [k, v] of Object.entries(textOverrides)) {
+        if (k in rootCopy && rootCopy[k] !== null && typeof rootCopy[k] !== "object" && !Array.isArray(rootCopy[k])) {
+          rootCopy[k] = v;
+          textChanged = true;
         }
+      }
+      if (textChanged) {
+        result = setByPath(result, rootPath, rootCopy);
+        changed = true;
       }
     }
 

@@ -2,27 +2,14 @@
 // config.js est ignoré par git (.gitignore).
 
 var FF_CONFIG = {
-  // Hôte de l'instance cible (sans protocole)
-  defaultHost: "your-app.example.com",
+  // URL complète de l'endpoint à intercepter (peut être sur un host différent de la page courante)
+  settingsUrl: "https://your-app.example.com/api/settings",
 
-  // Endpoint HTTP à intercepter
-  settingsPath: "/settings",
-
-  // Chemin vers le tableau à overrider dans la réponse JSON (notation pointée)
-  // Exemples : "data.module_bar"  |  "featureFlipping"  |  "config.modules"
-  dataPath: "data.module_bar",
-
-  // Clé identifiant chaque item du tableau (utilisée comme clé d'override)
-  itemIdKey: "id",
-
-  // Propriété à modifier sur chaque item
-  itemValueKey: "enabled",
-
-  // Chemin vers l'objet contenant les propriétés texte à overrider (notation pointée)
-  // Toutes les valeurs primitives (string, number, boolean) à la racine de cet objet seront affichées.
-  // Laisser vide ou omettre pour désactiver la section texte.
-  // Exemple : "data" exposera data.project_name, data.project_url, etc.
-  textPath: "data",
+  // Propriété racine dans la réponse JSON (notation pointée, ex. "data" ou "response.data")
+  // Le script détecte automatiquement :
+  //   — les tableaux       → sections de toggles (idKey et valueKey auto-détectés)
+  //   — les primitives     → overrides de texte
+  rootPath: "data",
 
   // Clés localStorage internes (modifier uniquement en cas de conflit)
   storageKeyLast:      "__ff_last_flags",

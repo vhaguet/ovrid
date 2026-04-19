@@ -8,84 +8,94 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
 
   const KEY_LAST = cfg.storageKeyLast;
   const KEY_OVR  = cfg.storageKeyOverrides;
-  const SETTINGS_URL = `https://${cfg.defaultHost}${cfg.settingsPath}`;
+  const SETTINGS_URL = cfg.settingsUrl;
 
   // Publish config to localStorage so content-inject.js (MAIN world) can read it
-  localStorage.setItem("__ff_settings_path",       cfg.settingsPath);
-  localStorage.setItem("__ff_data_path",           cfg.dataPath     || "data.module_bar");
-  localStorage.setItem("__ff_id_key",              cfg.itemIdKey    || "id");
-  localStorage.setItem("__ff_value_key",           cfg.itemValueKey || "enabled");
-  localStorage.setItem("__ff_text_path",           cfg.textPath     || "");
-  localStorage.setItem("__ff_overrides_enabled",   String(cfg.overridesEnabled     !== false));
-  localStorage.setItem("__ff_text_ovr_enabled",    String(cfg.textOverridesEnabled !== false));
+  localStorage.setItem("__ff_settings_url",  cfg.settingsUrl);
+  localStorage.setItem("__ff_root_path",     cfg.rootPath || "data");
+  localStorage.setItem("__ff_overrides_enabled", String(cfg.overridesEnabled     !== false));
+  localStorage.setItem("__ff_text_ovr_enabled",  String(cfg.textOverridesEnabled !== false));
   updateBadge();
 
   function updateBadge() {
     const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)      || "{}");
     const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}");
-    const count = Object.keys(overrides).length + Object.keys(textOverrides).length;
-    chrome.runtime.sendMessage({ type: "UPDATE_BADGE", count });
+    const toggleCount   = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
+    chrome.runtime.sendMessage({ type: "UPDATE_BADGE", count: toggleCount + Object.keys(textOverrides).length });
   }
 
   function getByPath(obj, path) {
+    if (!path) return obj;
     return path.split(".").reduce((acc, k) => acc?.[k], obj);
   }
 
-  function currentConfig() {
-    return {
-      dataPath:  cfg.dataPath     || "data.module_bar",
-      idKey:     cfg.itemIdKey    || "id",
-      valueKey:  cfg.itemValueKey || "enabled",
-      textPath:  cfg.textPath     || "",
-    };
+  function detectIdKey(obj) {
+    return ["id", "key", "name"].find((k) => typeof obj[k] === "string")
+      ?? Object.keys(obj).find((k) => typeof obj[k] === "string");
+  }
+
+  function detectValueKey(obj) {
+    return ["enabled", "active", "on", "isEnabled", "is_enabled"].find((k) => typeof obj[k] === "boolean")
+      ?? Object.keys(obj).find((k) => typeof obj[k] === "boolean");
+  }
+
+  // Returns { sections: { name: { idKey, valueKey, items } }, textFields: { key: value } }
+  function detectSections(rootObj) {
+    const sections   = {};
+    const textFields = {};
+    if (!rootObj || typeof rootObj !== "object" || Array.isArray(rootObj)) return { sections, textFields };
+    for (const [key, val] of Object.entries(rootObj)) {
+      if (Array.isArray(val) && val.length > 0 && val[0] !== null && typeof val[0] === "object") {
+        const idKey    = detectIdKey(val[0]);
+        const valueKey = detectValueKey(val[0]);
+        if (idKey && valueKey) sections[key] = { idKey, valueKey, items: val };
+      } else if (val !== null && !Array.isArray(val) && typeof val !== "object") {
+        textFields[key] = val;
+      }
+    }
+    return { sections, textFields };
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     switch (msg.type) {
       case "FETCH_FLAGS": {
-        fetch(SETTINGS_URL)
-          .then((r) => r.json())
+        fetch(SETTINGS_URL, { credentials: "include" })
+          .then((r) => r.ok ? r.json() : Promise.reject(r.status))
           .then((json) => {
-            const items = getByPath(json, cfg.dataPath);
-            const lastFlags = Array.isArray(items) ? items : null;
-            if (lastFlags) localStorage.setItem(KEY_LAST, JSON.stringify(lastFlags));
+            const rootPath = cfg.rootPath || "data";
+            const rootObj  = getByPath(json, rootPath);
+            const { sections, textFields } = detectSections(rootObj);
 
-            let lastText = null;
-            const textPath = cfg.textPath;
-            if (textPath) {
-              const textObj = getByPath(json, textPath);
-              if (textObj && typeof textObj === "object" && !Array.isArray(textObj)) {
-                lastText = Object.fromEntries(
-                  Object.entries(textObj).filter(([, v]) => v !== null && typeof v !== "object"),
-                );
-                localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(lastText));
-              }
-            }
+            const lastSections = Object.keys(sections).length  > 0 ? sections   : null;
+            const lastText     = Object.keys(textFields).length > 0 ? textFields : null;
+            if (lastSections) localStorage.setItem(KEY_LAST,      JSON.stringify(lastSections));
+            if (lastText)     localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(lastText));
 
             const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)      || "{}");
             const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}");
-            reply({ lastFlags, overrides, lastText, textOverrides, config: currentConfig() });
+            reply({ lastSections, overrides, lastText, textOverrides });
           })
           .catch(() => {
-            const lastFlags     = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
+            const lastSections  = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
             const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");
             const lastText      = JSON.parse(localStorage.getItem(KEY_LAST_TEXT) || "null");
             const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)  || "{}");
-            reply({ lastFlags, overrides, lastText, textOverrides, config: currentConfig(), fetchError: true });
+            reply({ lastSections, overrides, lastText, textOverrides, fetchError: true });
           });
         return true;
       }
       case "GET_STATE": {
-        const lastFlags     = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
+        const lastSections  = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
         const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");
         const lastText      = JSON.parse(localStorage.getItem(KEY_LAST_TEXT) || "null");
         const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)  || "{}");
-        reply({ lastFlags, overrides, lastText, textOverrides, config: currentConfig() });
+        reply({ lastSections, overrides, lastText, textOverrides });
         break;
       }
       case "SET_OVERRIDE": {
         const overrides = JSON.parse(localStorage.getItem(KEY_OVR) || "{}");
-        overrides[msg.id] = msg.value;
+        if (!overrides[msg.section]) overrides[msg.section] = {};
+        overrides[msg.section][msg.id] = msg.value;
         localStorage.setItem(KEY_OVR, JSON.stringify(overrides));
         updateBadge();
         reply({ ok: true });
@@ -93,7 +103,10 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
       }
       case "CLEAR_OVERRIDE": {
         const overrides = JSON.parse(localStorage.getItem(KEY_OVR) || "{}");
-        delete overrides[msg.id];
+        if (overrides[msg.section]) {
+          delete overrides[msg.section][msg.id];
+          if (!Object.keys(overrides[msg.section]).length) delete overrides[msg.section];
+        }
         localStorage.setItem(KEY_OVR, JSON.stringify(overrides));
         updateBadge();
         reply({ ok: true });

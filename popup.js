@@ -1,12 +1,8 @@
 const CONFIG_STORAGE_KEY = "__ff_config_settings";
 
 const SETTINGS_FIELDS = [
-  { key: "defaultHost",         label: "Hôte de l'API" },
-  { key: "settingsPath",        label: "Chemin de l'endpoint" },
-  { key: "dataPath",            label: "Chemin des flags (JSON)" },
-  { key: "itemIdKey",           label: "Clé identifiant" },
-  { key: "itemValueKey",        label: "Clé valeur" },
-  { key: "textPath",            label: "Chemin des textes (JSON)" },
+  { key: "settingsUrl",         label: "URL de l'endpoint" },
+  { key: "rootPath",            label: "Propriété racine (JSON)" },
   { key: "storageKeyLast",      label: "Clé cache (localStorage)", advanced: true },
   { key: "storageKeyOverrides", label: "Clé overrides (localStorage)", advanced: true },
 ];
@@ -101,22 +97,25 @@ function msg(tabId, payload) {
 }
 
 function totalOverrides(overrides, textOverrides) {
-  return Object.keys(overrides).length + Object.keys(textOverrides).length;
+  const toggleCount = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
+  return toggleCount + Object.keys(textOverrides).length;
 }
 
 function filterState(state, query) {
   if (!query) return state;
   const q = query.toLowerCase();
-  const { config } = state;
+  const filteredSections = {};
+  for (const [name, section] of Object.entries(state.lastSections || {})) {
+    const filteredItems = section.items.filter((item) =>
+      String(item[section.idKey]).toLowerCase().includes(q),
+    );
+    if (filteredItems.length) filteredSections[name] = { ...section, items: filteredItems };
+  }
   return {
     ...state,
-    lastFlags: state.lastFlags?.filter((item) =>
-      String(item[config.idKey]).toLowerCase().includes(q),
-    ) ?? null,
+    lastSections: filteredSections,
     lastText: state.lastText
-      ? Object.fromEntries(
-          Object.entries(state.lastText).filter(([k]) => k.toLowerCase().includes(q)),
-        )
+      ? Object.fromEntries(Object.entries(state.lastText).filter(([k]) => k.toLowerCase().includes(q)))
       : null,
   };
 }
@@ -144,7 +143,7 @@ function hideSettings() {
   document.getElementById("btn-settings").classList.remove("active");
   document.getElementById("btn-reset").style.display = "";
   if (currentState) {
-    const hasData = currentState.lastFlags !== null || currentState.lastText !== null;
+    const hasData = currentState.lastSections !== null || currentState.lastText !== null;
     document.getElementById("search-bar").classList.toggle("hidden", !hasData);
   }
 }
@@ -152,13 +151,13 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const { lastFlags, overrides, lastText, textOverrides, config } = filterState(state, query);
+  const { lastSections, overrides, lastText, textOverrides } = filterState(state, query);
   const searchBar  = document.getElementById("search-bar");
   const main       = document.getElementById("main-content");
   const statusBar  = document.getElementById("status-bar");
   const statusText = document.getElementById("status-text");
 
-  const hasData = state.lastFlags !== null || state.lastText !== null;
+  const hasData = (state.lastSections && Object.keys(state.lastSections).length > 0) || state.lastText !== null;
   searchBar.classList.toggle("hidden", !hasData);
 
   if (!hasData) {
@@ -184,22 +183,22 @@ function renderFlags(state, query = "") {
 
   main.innerHTML = "";
 
-  // --- Toggle section (array overrides) ---
-  if (lastFlags && config.dataPath) {
-    const { idKey, valueKey, dataPath } = config;
+  // --- Toggle sections (arrays) ---
+  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(lastSections || {})) {
+    const sectionOverrides = overrides[sectionName] || {};
     const section = document.createElement("div");
     section.className = "category";
 
     const header = document.createElement("div");
     header.className = "category-header";
-    header.textContent = dataPath.split(".").pop() + " — " + valueKey;
+    header.textContent = `${sectionName} — ${valueKey}`;
     section.appendChild(header);
 
-    for (const mod of lastFlags) {
+    for (const mod of items) {
       const itemId      = mod[idKey];
       const originalVal = mod[valueKey];
-      const hasOverride = itemId in overrides;
-      const effectiveVal = hasOverride ? overrides[itemId] : originalVal;
+      const hasOverride = itemId in sectionOverrides;
+      const effectiveVal = hasOverride ? sectionOverrides[itemId] : originalVal;
       const isOn        = effectiveVal === true || effectiveVal === "ON";
       const isLocked    = !!mod.locked;
 
@@ -217,12 +216,13 @@ function renderFlags(state, query = "") {
               ${isOn ? "checked" : ""}
               ${isLocked ? "disabled" : ""}
               data-id="${itemId}"
+              data-section="${sectionName}"
               data-original="${originalVal}">
             <span class="slider"></span>
           </label>
           ${
             hasOverride
-              ? `<button class="reset-flag-btn" data-id="${itemId}" title="Réinitialiser">✕</button>`
+              ? `<button class="reset-flag-btn" data-id="${itemId}" data-section="${sectionName}" title="Réinitialiser">✕</button>`
               : '<span style="width:18px"></span>'
           }
         </div>`;
@@ -234,13 +234,13 @@ function renderFlags(state, query = "") {
 
   // --- Text section ---
   const textEntries = lastText ? Object.entries(lastText) : [];
-  if (textEntries.length > 0 && config.textPath) {
+  if (textEntries.length > 0) {
     const section = document.createElement("div");
     section.className = "category";
 
     const header = document.createElement("div");
     header.className = "category-header";
-    header.textContent = config.textPath.split(".").pop() + " — text";
+    header.textContent = "text";
     section.appendChild(header);
 
     for (const [key, originalVal] of textEntries) {
@@ -363,13 +363,13 @@ async function init() {
   // Toggle change
   document.addEventListener("change", async (e) => {
     if (!e.target.matches('input[type="checkbox"][data-id]')) return;
-    const { id, original } = e.target.dataset;
-    const newValue    = e.target.checked;
+    const { id, section, original } = e.target.dataset;
+    const newValue     = e.target.checked;
     const originalBool = original === "true";
     if (newValue === originalBool) {
-      await msg(tabId, { type: "CLEAR_OVERRIDE", id });
+      await msg(tabId, { type: "CLEAR_OVERRIDE", id, section });
     } else {
-      await msg(tabId, { type: "SET_OVERRIDE", id, value: newValue });
+      await msg(tabId, { type: "SET_OVERRIDE", id, section, value: newValue });
     }
     await refresh(tabId);
   });
@@ -390,7 +390,8 @@ async function init() {
   // Reset individual toggle
   document.addEventListener("click", async (e) => {
     if (!e.target.matches(".reset-flag-btn[data-id]")) return;
-    await msg(tabId, { type: "CLEAR_OVERRIDE", id: e.target.dataset.id });
+    const { id, section } = e.target.dataset;
+    await msg(tabId, { type: "CLEAR_OVERRIDE", id, section });
     await refresh(tabId);
   });
 

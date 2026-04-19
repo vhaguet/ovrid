@@ -2,7 +2,7 @@
 
 Extension Chrome permettant de visualiser et surcharger en temps réel des propriétés d'une réponse HTTP JSON, sans modifier le code source ni l'API.
 
-Supporte les overrides de **toggles booléens** (tableau d'items) et de **valeurs texte** (propriétés scalaires d'un objet).
+Supporte les overrides de **toggles booléens** (tableaux d'items) et de **valeurs texte** (propriétés scalaires) — auto-détectés à partir d'un chemin racine configurable.
 
 ---
 
@@ -19,7 +19,7 @@ Supporte les overrides de **toggles booléens** (tableau d'items) et de **valeur
                          │ localStorage
                          │ __ff_last_flags / __ff_last_text
                          │ __ff_overrides  / __ff_text_overrides
-                         │ __ff_settings_path / __ff_data_path / …
+                         │ __ff_settings_url / __ff_root_path / …
 ┌────────────────────────┴────────────────────────────┐
 │              content-bridge.js                      │
 │              (ISOLATED world)                       │
@@ -58,9 +58,18 @@ Les overrides s'appliquent au **prochain rechargement** de la page.
 
 ### Via le popup (recommandé)
 
-Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. Toutes les valeurs de `FF_CONFIG` sont éditables en direct et sauvegardées dans `chrome.storage.local`. Les modifications prennent effet au prochain rechargement de la page.
+Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. Les champs configurables sont :
 
-Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par défaut de `config.js`.
+| Champ | Description |
+|---|---|
+| Overrides de toggles | Active/désactive l'interception des tableaux booléens |
+| Overrides de texte | Active/désactive l'interception des propriétés scalaires |
+| URL de l'endpoint | URL complète à intercepter (peut être cross-origin) |
+| Propriété racine (JSON) | Chemin vers l'objet racine dans la réponse (notation pointée) |
+| Clé cache (avancé) | Clé `localStorage` interne pour le cache des items |
+| Clé overrides (avancé) | Clé `localStorage` interne pour les overrides de toggles |
+
+Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par défaut de `config.js`. Les modifications prennent effet au prochain rechargement de la page.
 
 ### Via `config.js`
 
@@ -68,23 +77,13 @@ Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par déf
 
 ```js
 var FF_CONFIG = {
-  // Hôte de l'instance cible (sans protocole)
-  defaultHost: "your-app.example.com",
+  // URL complète de l'endpoint à intercepter (peut être cross-origin)
+  settingsUrl: "https://your-app.example.com/api/settings",
 
-  // Endpoint HTTP à intercepter
-  settingsPath: "/settings",
-
-  // Chemin vers le tableau à overrider (notation pointée)
-  dataPath: "data.module_bar",
-
-  // Clé identifiant chaque item du tableau
-  itemIdKey: "id",
-
-  // Propriété à modifier sur chaque item
-  itemValueKey: "enabled",
-
-  // Chemin vers l'objet contenant les propriétés texte à overrider (optionnel)
-  textPath: "data",
+  // Chemin vers l'objet racine dans la réponse JSON (notation pointée)
+  // Les tableaux d'objets → sections de toggles (idKey/valueKey auto-détectés)
+  // Les primitives → champs texte overridables
+  rootPath: "data",
 
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
@@ -92,22 +91,29 @@ var FF_CONFIG = {
 };
 ```
 
-### Exemples de `dataPath`
+### Auto-détection des sections
 
-| Structure de réponse | `dataPath` |
-|---|---|
-| `{ data: { module_bar: [...] } }` | `"data.module_bar"` |
-| `{ featureFlipping: [...] }` | `"featureFlipping"` |
-| `{ config: { modules: { items: [...] } } }` | `"config.modules.items"` |
+À partir de l'objet pointé par `rootPath`, le script parcourt chaque propriété :
+
+- **Tableau d'objets** → section de toggles. La clé d'identification (`id`, `key`, `name`…) et la propriété booléenne (`enabled`, `active`, `on`…) sont détectées automatiquement sur le premier item.
+- **Valeur primitive** (string, number…) → champ texte overridable.
+- **Objet ou tableau vide** → ignoré.
+
+### Exemples de `rootPath`
+
+| Structure de réponse | `rootPath` | Ce qui est détecté |
+|---|---|---|
+| `{ data: { flags: [...], title: "..." } }` | `"data"` | section `flags` (toggles) + champ `title` (texte) |
+| `{ response: { modules: [...] } }` | `"response"` | section `modules` (toggles) |
+| `{ config: { sections: { items: [...] } } }` | `"config.sections"` | section `items` (toggles) |
 
 ### Changer d'instance
 
-Pour pointer sur un autre host :
+Pour pointer sur un autre endpoint :
 
-1. **Popup → Paramètres** — modifier `Hôte de l'API` et `Chemin de l'endpoint` (ou éditer `config.js`)
-2. **`manifest.json`** — mettre à jour le champ `matches` du content script ISOLATED world
+1. **Popup → Paramètres** — modifier `URL de l'endpoint` (ou éditer `config.js`)
 
-> Le manifest ne peut pas lire `config.js` dynamiquement (limitation MV3). Le content script MAIN world utilise `<all_urls>` et vérifie l'URL cible à l'exécution via `localStorage` — seul le script ISOLATED world a besoin du match précis.
+> Le manifest utilise `<all_urls>` — le content script MAIN world vérifie l'URL cible à l'exécution via `localStorage`. Aucune modification du `manifest.json` n'est nécessaire pour changer d'instance.
 
 ---
 
@@ -137,13 +143,14 @@ window.fetch = async function (...args) {
 };
 ```
 
-Quand l'app appelle l'endpoint configuré (`settingsPath`) :
+Quand l'app appelle l'endpoint configuré (`settingsUrl`) :
 
 1. Le wrapper intercepte la réponse
-2. **Overrides de tableau** : `getByPath(json, dataPath)` extrait le tableau cible, les overrides de `__ff_overrides` sont appliqués sur `itemValueKey`
-3. **Overrides texte** : `getByPath(json, textPath)` extrait l'objet cible, les overrides de `__ff_text_overrides` sont fusionnés
-4. `setByPath` reconstruit le JSON complet pour chaque section modifiée
-5. L'app reçoit la réponse patchée
+2. `getByPath(json, rootPath)` extrait l'objet racine
+3. **Overrides de toggles** : chaque sous-tableau est parcouru — les overrides de `__ff_overrides[sectionKey][itemId]` sont appliqués sur la propriété booléenne auto-détectée
+4. **Overrides texte** : les primitives de l'objet racine sont remplacées par les valeurs de `__ff_text_overrides`
+5. `setByPath` reconstruit le JSON complet pour chaque section modifiée
+6. L'app reçoit la réponse patchée
 
 > **Pourquoi `"world": "MAIN"` dans le manifest ?**
 > Sans ça, le content script tourne dans un sandbox isolé où `window.fetch` est une copie — wrapper cette copie n'affecte pas la page. `"world": "MAIN"` est l'équivalent de `@run-at document-start` de Tampermonkey.
@@ -154,17 +161,16 @@ Quand l'app appelle l'endpoint configuré (`settingsPath`) :
 
 | Clé | Contenu | Rôle |
 |---|---|---|
-| `__ff_last_flags` | tableau brut de l'API | référence originale des items toggle affichée dans le popup |
-| `__ff_overrides` | `{ [itemId]: value }` | overrides de toggles — lu par `content-inject.js` |
-| `__ff_last_text` | `{ [key]: value }` | valeurs scalaires originales à la racine de `textPath` |
+| `__ff_last_flags` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections détectées — référence affichée dans le popup |
+| `__ff_overrides` | `{ [sectionKey]: { [itemId]: boolean } }` | overrides de toggles par section — lu par `content-inject.js` |
+| `__ff_last_text` | `{ [key]: value }` | valeurs scalaires originales |
 | `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
-| `__ff_settings_path` | string | chemin de l'endpoint |
-| `__ff_data_path` | string | chemin vers le tableau dans le JSON |
-| `__ff_id_key` | string | clé d'identification des items |
-| `__ff_value_key` | string | propriété à overrider sur les items |
-| `__ff_text_path` | string | chemin vers l'objet texte dans le JSON |
+| `__ff_settings_url` | string | URL complète de l'endpoint |
+| `__ff_root_path` | string | chemin vers l'objet racine dans le JSON |
+| `__ff_overrides_enabled` | `"true"` / `"false"` | activation des overrides de toggles |
+| `__ff_text_ovr_enabled` | `"true"` / `"false"` | activation des overrides de texte |
 
-Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarrage à partir de la config mergée (`chrome.storage.local` + `config.js`), puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
+Les clés `__ff_*` sont écrites par `content-bridge.js` au démarrage à partir de la config mergée (`chrome.storage.local` + `config.js`), puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
 
 ---
 
@@ -172,13 +178,13 @@ Les clés de config (`__ff_*`) sont écrites par `content-bridge.js` au démarra
 
 Les paramètres modifiés via le popup sont stockés dans `chrome.storage.local` sous la clé `__ff_config_settings`. Au démarrage, `content-bridge.js` merge ces valeurs avec les defaults de `config.js` (les valeurs du storage ont priorité).
 
-La réinitialisation champ par champ (bouton ↺) ou globale supprime les surcharges et revient aux defaults de `config.js`.
+La réinitialisation champ par champ (bouton ↺) revient aux defaults de `config.js`.
 
 ---
 
 ## Icône
 
-Les fichiers `icons/icon16.png`, `icons/icon48.png` et `icons/icon128.png` sont référencés dans `manifest.json` (champs `icons` et `action.default_icon`).
+Les fichiers `icons/icon16.png`, `icons/icon48.png` et `icons/icon128.png` sont référencés dans `manifest.json`.
 
 Pour les régénérer (après modification du design) :
 
@@ -194,16 +200,16 @@ Le badge rouge (nombre d'overrides actifs) est mis à jour par `content-bridge.j
 
 ## Communication popup ↔ page (`content-bridge.js`)
 
-| Message | Action |
-|---|---|
-| `FETCH_FLAGS` | Fait un `fetch(settingsPath)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastFlags, overrides, lastText, textOverrides, config }` |
-| `GET_STATE` | Lit `localStorage` — renvoie `{ lastFlags, overrides, lastText, textOverrides, config }` |
-| `SET_OVERRIDE` | Écrit `overrides[id] = value` dans `localStorage` |
-| `CLEAR_OVERRIDE` | Supprime un override de toggle individuel |
-| `SET_TEXT_OVERRIDE` | Écrit `textOverrides[key] = value` dans `localStorage` |
-| `CLEAR_TEXT_OVERRIDE` | Supprime un override texte individuel |
-| `RESET_ALL` | Supprime `__ff_overrides` et `__ff_text_overrides` |
-| `RELOAD_PAGE` | Appelle `window.location.reload()` |
+| Message | Paramètres | Action |
+|---|---|---|
+| `FETCH_FLAGS` | — | Fait un `fetch(settingsUrl)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastSections, overrides, lastText, textOverrides }` |
+| `GET_STATE` | — | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides }` |
+| `SET_OVERRIDE` | `{ id, section, value }` | Écrit `overrides[section][id] = value` dans `localStorage` |
+| `CLEAR_OVERRIDE` | `{ id, section }` | Supprime un override de toggle individuel |
+| `SET_TEXT_OVERRIDE` | `{ key, value }` | Écrit `textOverrides[key] = value` dans `localStorage` |
+| `CLEAR_TEXT_OVERRIDE` | `{ key }` | Supprime un override texte individuel |
+| `RESET_ALL` | — | Supprime `__ff_overrides` et `__ff_text_overrides` |
+| `RELOAD_PAGE` | — | Appelle `window.location.reload()` |
 
 > **Pourquoi `FETCH_FLAGS` passe par le content script ?**
 > Le popup est une page à part — ses requêtes `fetch` ne portent pas les cookies de session. Le content script, lui, s'exécute dans le contexte de la page et en hérite.
@@ -219,7 +225,7 @@ ovrid/
 ├── manifest.json        # déclaration MV3 — permissions, content scripts, service worker
 ├── background.js        # service worker — badge
 ├── generate-icons.js    # script Node.js — génère les PNGs (sans dépendances)
-├── content-inject.js    # MAIN world — intercepte fetch & XHR
+├── content-inject.js    # MAIN world — intercepte fetch & XHR, applique les overrides
 ├── content-bridge.js    # ISOLATED world — pont popup ↔ localStorage, badge
 ├── popup.html           # structure du popup
 ├── popup.css            # styles du popup
