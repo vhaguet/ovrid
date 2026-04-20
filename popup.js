@@ -79,9 +79,33 @@ function renderSettings(config) {
   const regular = SETTINGS_FIELDS.filter((f) => !f.advanced);
   const advanced = SETTINGS_FIELDS.filter((f) => f.advanced);
 
+  const nestedSections = config.nestedSections || [];
+  const hiddenNested = new Set(config.hiddenNestedSections || []);
+  const nestedToggles = nestedSections.length
+    ? `<div class="settings-section-divider">Sections imbriquées</div>
+       ${nestedSections.map(({ path }) => {
+         const key = path.split(".").pop();
+         const visible = !hiddenNested.has(key);
+         return `
+           <div class="settings-field settings-toggle-row">
+             <span class="settings-toggle-label">${key}</span>
+             <div class="toggle-wrap">
+               <span class="toggle-label ${visible ? "on" : "off"}">${visible ? "ON" : "OFF"}</span>
+               <label class="toggle">
+                 <input type="checkbox" class="settings-toggle"
+                   data-key="hiddenNestedSections" data-section-key="${key}"
+                   ${visible ? "checked" : ""}>
+                 <span class="slider"></span>
+               </label>
+             </div>
+           </div>`;
+       }).join("")}`
+    : "";
+
   panel.innerHTML = `
     <div class="settings-content">
       ${regular.map(renderField).join("")}
+      ${nestedToggles}
       <div class="settings-section-divider">Avancé</div>
       ${advanced.map(renderField).join("")}
     </div>`;
@@ -196,6 +220,10 @@ function renderFlags(state, query = "") {
     lastNested,
     nestedOverrides,
   } = filterState(state, query);
+  const hiddenNested = new Set(activeConfig.hiddenNestedSections || []);
+  const visibleNested = lastNested
+    ? Object.fromEntries(Object.entries(lastNested).filter(([k]) => !hiddenNested.has(k)))
+    : null;
   const searchBar = document.getElementById("search-bar");
   const main = document.getElementById("main-content");
   const statusBar = document.getElementById("status-bar");
@@ -204,7 +232,7 @@ function renderFlags(state, query = "") {
   const hasData =
     Object.keys(lastSections || {}).length > 0 ||
     lastText !== null ||
-    (lastNested && Object.keys(lastNested).length > 0);
+    (visibleNested && Object.keys(visibleNested).length > 0);
   searchBar.classList.toggle("hidden", !hasData);
 
   if (!hasData) {
@@ -325,7 +353,7 @@ function renderFlags(state, query = "") {
 
   // --- Nested sections ---
   for (const [sectionName, { valueKey, items }] of Object.entries(
-    lastNested || {},
+    visibleNested || {},
   )) {
     const section = document.createElement("div");
     section.className = "category";
@@ -478,11 +506,22 @@ async function init() {
               : input.value;
         activeConfig = { ...activeConfig, [input.dataset.key]: val };
       }
+      if (toggle) {
+        const sectionKey = toggle.dataset.sectionKey;
+        const hidden = new Set(activeConfig.hiddenNestedSections || []);
+        if (toggle.checked) hidden.delete(sectionKey);
+        else hidden.add(sectionKey);
+        activeConfig = { ...activeConfig, hiddenNestedSections: [...hidden] };
+      }
 
       await saveConfig(activeConfig);
       renderSettings(activeConfig);
-      document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
-      document.getElementById("reload-bar").classList.remove("hidden");
+      if (toggle) {
+        if (currentState) renderFlags(currentState, searchQuery());
+      } else {
+        document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
+        document.getElementById("reload-bar").classList.remove("hidden");
+      }
     });
 
   // Settings: reset individual field to FF_CONFIG default
