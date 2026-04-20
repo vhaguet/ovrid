@@ -13,7 +13,7 @@
   // Config written by content-bridge.js (ISOLATED world) at document_start via localStorage
   function getCfg() {
     return {
-      settingsUrl:          localStorage.getItem("__ff_settings_url"),
+      settingsUrls:         JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]"),
       rootPath:             localStorage.getItem("__ff_root_path") || "data",
       overridesEnabled:     localStorage.getItem("__ff_overrides_enabled")  !== "false",
       textOverridesEnabled: localStorage.getItem("__ff_text_ovr_enabled")   !== "false",
@@ -40,15 +40,25 @@
     return result;
   }
 
-  function isTarget(url) {
-    if (typeof url !== "string") return false;
+  function matchesUrl(url, targetStr) {
+    if (!targetStr) return false;
     try {
-      const target = new URL(getCfg().settingsUrl);
+      const target = new URL(targetStr);
       const req    = new URL(url, location.origin);
       return req.host === target.host && req.pathname === target.pathname;
     } catch {
       return false;
     }
+  }
+
+  function getUrlIndex(url) {
+    if (typeof url !== "string") return -1;
+    const { settingsUrls } = getCfg();
+    return settingsUrls.findIndex((u) => matchesUrl(url, u));
+  }
+
+  function isTarget(url) {
+    return getUrlIndex(url) >= 0;
   }
 
   function getOverrides() {
@@ -133,7 +143,7 @@
   }
 
   // Apply both array (toggle) overrides and text overrides — returns patched JSON or null if unchanged
-  function applyOverrides(json) {
+  function applyOverrides(json, urlIdx) {
     const { rootPath, overridesEnabled, textOverridesEnabled } = getCfg();
     let result = json;
     let changed = false;
@@ -171,12 +181,13 @@
       }
     }
 
-    // Cache for popup
+    // Cache for popup — keyed by URL index so each endpoint has its own slot
+    const sfx = `_${urlIdx}`;
     if (Object.keys(detectedSections).length) {
-      localStorage.setItem(KEY_LAST, JSON.stringify(detectedSections));
+      localStorage.setItem(KEY_LAST + sfx, JSON.stringify(detectedSections));
     }
     if (Object.keys(detectedText).length) {
-      localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(detectedText));
+      localStorage.setItem(KEY_LAST_TEXT + sfx, JSON.stringify(detectedText));
     }
 
     // Cache nested sections — collected here (MAIN world) since content-bridge.js can't fetch cross-origin
@@ -187,7 +198,7 @@
         for (const ns of nestedSections) {
           Object.assign(lastNested, collectNested(rootObj, ns));
         }
-        if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED, JSON.stringify(lastNested));
+        if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED + sfx, JSON.stringify(lastNested));
       }
     } catch (e) { console.error("[ovrid] nested cache error", e); }
 
@@ -228,10 +239,11 @@
   window.fetch = async function (...args) {
     const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
     const response = await origFetch.apply(this, args);
-    if (!isTarget(url)) return response;
+    const urlIdx = getUrlIndex(url);
+    if (urlIdx < 0) return response;
     try {
       const json = await response.clone().json();
-      const patched = applyOverrides(json);
+      const patched = applyOverrides(json, urlIdx);
       if (!patched) return response;
       return new Response(JSON.stringify(patched));
     } catch {
@@ -248,12 +260,13 @@
 
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (...args) {
-    if (isTarget(this._ffUrl ?? "")) {
+    const _urlIdx = getUrlIndex(this._ffUrl ?? "");
+    if (_urlIdx >= 0) {
       this.addEventListener("readystatechange", function () {
         if (this.readyState !== 4) return;
         try {
           const json = JSON.parse(this.responseText);
-          const patched = applyOverrides(json);
+          const patched = applyOverrides(json, _urlIdx);
           if (!patched) return;
           const body = JSON.stringify(patched);
           Object.defineProperty(this, "responseText", {

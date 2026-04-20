@@ -1,7 +1,7 @@
 const CONFIG_STORAGE_KEY = "__ff_config_settings";
 
 const SETTINGS_FIELDS = [
-  { key: "settingsUrl",         label: "URL de l'endpoint" },
+  { key: "settingsUrls",        label: "URLs des endpoints (une par ligne)", type: "textarea" },
   { key: "rootPath",            label: "Propriété racine (JSON)" },
   { key: "storageKeyLast",      label: "Clé cache (localStorage)", advanced: true },
   { key: "storageKeyOverrides", label: "Clé overrides (localStorage)", advanced: true },
@@ -29,8 +29,24 @@ function renderSettings(config) {
   const panel = document.getElementById("settings-panel");
 
   const renderField = (field) => {
-    const val        = config[field.key] ?? "";
-    const isModified = String(val) !== String(FF_CONFIG[field.key] ?? "");
+    const raw        = config[field.key] ?? "";
+    const val        = field.type === "textarea" && Array.isArray(raw) ? raw.join("\n") : String(raw);
+    const defRaw     = FF_CONFIG[field.key] ?? "";
+    const defVal     = field.type === "textarea" && Array.isArray(defRaw) ? defRaw.join("\n") : String(defRaw);
+    const isModified = val !== defVal;
+    if (field.type === "textarea") {
+      return `
+        <div class="settings-field">
+          <div class="settings-field-label">
+            <label for="cfg-${field.key}">${field.label}</label>
+            ${isModified ? `<button class="btn-field-reset" data-key="${field.key}" title="Réinitialiser">↺</button>` : ""}
+          </div>
+          <textarea id="cfg-${field.key}"
+            class="settings-input${isModified ? " modified" : ""}"
+            data-key="${field.key}" data-type="array"
+            rows="3" spellcheck="false">${escapeAttr(val)}</textarea>
+        </div>`;
+    }
     return `
       <div class="settings-field">
         <div class="settings-field-label">
@@ -68,6 +84,7 @@ function renderSettings(config) {
       <div class="settings-section-divider">Overrides</div>
       ${renderToggleRow("Overrides de toggles", "overridesEnabled")}
       ${renderToggleRow("Overrides de texte",   "textOverridesEnabled")}
+      ${renderToggleRow("Sections imbriquées uniquement", "onlyNestedSections")}
       ${regular.map(renderField).join("")}
       <div class="settings-section-divider">Avancé</div>
       ${advanced.map(renderField).join("")}
@@ -163,8 +180,9 @@ function renderFlags(state, query = "") {
   const statusBar  = document.getElementById("status-bar");
   const statusText = document.getElementById("status-text");
 
-  const hasData = (state.lastSections && Object.keys(state.lastSections).length > 0)
-    || state.lastText   !== null
+  const onlyNested = activeConfig?.onlyNestedSections === true;
+  const hasData = (!onlyNested && state.lastSections && Object.keys(state.lastSections).length > 0)
+    || (!onlyNested && state.lastText !== null)
     || (state.lastNested && Object.keys(state.lastNested).length > 0);
   searchBar.classList.toggle("hidden", !hasData);
 
@@ -192,7 +210,8 @@ function renderFlags(state, query = "") {
   main.innerHTML = "";
 
   // --- Toggle sections (arrays) ---
-  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(lastSections || {})) {
+  const visibleSections = onlyNested ? {} : (lastSections || {});
+  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(visibleSections)) {
     const sectionOverrides = overrides[sectionName] || {};
     const section = document.createElement("div");
     section.className = "category";
@@ -241,7 +260,7 @@ function renderFlags(state, query = "") {
   }
 
   // --- Text section ---
-  const textEntries = lastText ? Object.entries(lastText) : [];
+  const textEntries = !onlyNested && lastText ? Object.entries(lastText) : [];
   if (textEntries.length > 0) {
     const section = document.createElement("div");
     section.className = "category";
@@ -401,11 +420,16 @@ async function init() {
 
   // Settings: save on any change (text input blur or toggle click)
   document.getElementById("settings-panel").addEventListener("change", async (e) => {
-    const input  = e.target.closest("input.settings-input");
+    const input  = e.target.closest("input.settings-input, textarea.settings-input");
     const toggle = e.target.closest("input.settings-toggle");
     if (!input && !toggle) return;
 
-    if (input)  activeConfig = { ...activeConfig, [input.dataset.key]:  input.value };
+    if (input) {
+      const val = input.dataset.type === "array"
+        ? input.value.split("\n").map((s) => s.trim()).filter(Boolean)
+        : input.value;
+      activeConfig = { ...activeConfig, [input.dataset.key]: val };
+    }
     if (toggle) activeConfig = { ...activeConfig, [toggle.dataset.key]: toggle.checked };
 
     await saveConfig(activeConfig);

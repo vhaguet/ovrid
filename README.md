@@ -17,9 +17,9 @@ Supporte les overrides de **toggles booléens** (tableaux d'items), de **valeurs
 │         réponse patchée  ◄──     lit localStorage   │
 └────────────────────────┬────────────────────────────┘
                          │ localStorage
-                         │ __ff_last_flags / __ff_last_text / __ff_last_nested
+                         │ __ff_last_flags_N / __ff_last_text_N / __ff_last_nested_N  (N = index URL)
                          │ __ff_overrides  / __ff_text_overrides / __ff_nested_overrides
-                         │ __ff_settings_url / __ff_root_path / __ff_nested_sections / …
+                         │ __ff_settings_urls / __ff_root_path / __ff_nested_sections / …
 ┌────────────────────────┴────────────────────────────┐
 │              content-bridge.js                      │
 │              (ISOLATED world)                       │
@@ -64,7 +64,8 @@ Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. L
 |---|---|
 | Overrides de toggles | Active/désactive l'interception des tableaux booléens |
 | Overrides de texte | Active/désactive l'interception des propriétés scalaires |
-| URL de l'endpoint | URL complète à intercepter (peut être cross-origin) |
+| Sections imbriquées uniquement | Masque les sections toggles et texte — affiche uniquement les nested sections |
+| URLs des endpoints | Une URL par ligne — chaque endpoint est intercepté indépendamment |
 | Propriété racine (JSON) | Chemin vers l'objet racine dans la réponse (notation pointée) |
 | Clé cache (avancé) | Clé `localStorage` interne pour le cache des items |
 | Clé overrides (avancé) | Clé `localStorage` interne pour les overrides de toggles |
@@ -77,8 +78,8 @@ Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par déf
 
 ```js
 var FF_CONFIG = {
-  // URL complète de l'endpoint à intercepter (peut être cross-origin)
-  settingsUrl: "https://your-app.example.com/api/settings",
+  // Un ou plusieurs endpoints à intercepter (peuvent être cross-origin)
+  settingsUrls: ["https://your-app.example.com/api/settings"],
 
   // Chemin vers l'objet racine dans la réponse JSON (notation pointée)
   // Les tableaux d'objets → sections de toggles (idKey/valueKey auto-détectés)
@@ -157,9 +158,9 @@ Avec `rootPath: "characteristics"` et la config ci-dessus, les items sont affich
 
 ### Changer d'instance
 
-Pour pointer sur un autre endpoint :
+Pour pointer sur un ou plusieurs endpoints :
 
-1. **Popup → Paramètres** — modifier `URL de l'endpoint` (ou éditer `config.js`)
+1. **Popup → Paramètres** — modifier `URLs des endpoints`, une URL par ligne (ou éditer `settingsUrls` dans `config.js`)
 
 > Le manifest utilise `<all_urls>` — le content script MAIN world vérifie l'URL cible à l'exécution via `localStorage`. Aucune modification du `manifest.json` n'est nécessaire pour changer d'instance.
 
@@ -191,7 +192,7 @@ window.fetch = async function (...args) {
 };
 ```
 
-Quand l'app appelle l'endpoint configuré (`settingsUrl`) :
+Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 
 1. Le wrapper intercepte la réponse
 2. `getByPath(json, rootPath)` extrait l'objet racine
@@ -210,17 +211,19 @@ Quand l'app appelle l'endpoint configuré (`settingsUrl`) :
 
 | Clé | Contenu | Rôle |
 |---|---|---|
-| `__ff_last_flags` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées — référence affichée dans le popup |
+| `__ff_last_flags_N` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées pour l'URL d'index N — référence affichée dans le popup |
+| `__ff_last_text_N` | `{ [key]: value }` | valeurs scalaires originales pour l'URL d'index N |
+| `__ff_last_nested_N` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'URL d'index N |
 | `__ff_overrides` | `{ [sectionKey]: { [itemId]: boolean } }` | overrides de toggles par section — lu par `content-inject.js` |
-| `__ff_last_text` | `{ [key]: value }` | valeurs scalaires originales |
 | `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
-| `__ff_last_nested` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections — référence affichée dans le popup |
 | `__ff_nested_overrides` | `{ [compositeKey]: string }` | overrides imbriqués — lu par `content-inject.js` |
-| `__ff_settings_url` | string | URL complète de l'endpoint |
+| `__ff_settings_urls` | JSON (array de strings) | liste des endpoints à intercepter |
 | `__ff_root_path` | string | chemin vers l'objet racine dans le JSON |
 | `__ff_nested_sections` | JSON (array) | config `nestedSections` sérialisée — lue par `content-inject.js` |
 | `__ff_overrides_enabled` | `"true"` / `"false"` | activation des overrides de toggles |
 | `__ff_text_ovr_enabled` | `"true"` / `"false"` | activation des overrides de texte |
+
+> Les caches `__ff_last_*_N` sont écrits par `content-inject.js` lors de l'interception — `N` est l'index de l'URL dans `settingsUrls`. `content-bridge.js` les merge tous pour les renvoyer au popup.
 
 Les clés `__ff_*` sont écrites par `content-bridge.js` au démarrage à partir de la config mergée (`chrome.storage.local` + `config.js`), puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
 
@@ -254,7 +257,7 @@ Le badge rouge (nombre d'overrides actifs) est mis à jour par `content-bridge.j
 
 | Message | Paramètres | Action |
 |---|---|---|
-| `FETCH_FLAGS` | — | Fait un `fetch(settingsUrl)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
+| `FETCH_FLAGS` | — | Lit les caches `localStorage` per-URL et les merge — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
 | `GET_STATE` | — | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
 | `SET_OVERRIDE` | `{ id, section, value }` | Écrit `overrides[section][id] = value` dans `localStorage` |
 | `CLEAR_OVERRIDE` | `{ id, section }` | Supprime un override de toggle individuel |

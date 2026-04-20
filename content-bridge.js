@@ -7,7 +7,7 @@ const KEY_LAST_NESTED = "__ff_last_nested";
 
 // Publish FF_CONFIG defaults synchronously so content-inject.js (MAIN world) can read them
 // before the page makes its first API request — the async callback below will update with stored overrides.
-localStorage.setItem("__ff_settings_url",      FF_CONFIG.settingsUrl);
+localStorage.setItem("__ff_settings_urls",     JSON.stringify(FF_CONFIG.settingsUrls || []));
 localStorage.setItem("__ff_root_path",         FF_CONFIG.rootPath || "data");
 localStorage.setItem("__ff_overrides_enabled", String(FF_CONFIG.overridesEnabled     !== false));
 localStorage.setItem("__ff_text_ovr_enabled",  String(FF_CONFIG.textOverridesEnabled !== false));
@@ -21,7 +21,7 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   const SETTINGS_URL = cfg.settingsUrl;
 
   // Update localStorage with merged config (stored popup settings take priority over FF_CONFIG)
-  localStorage.setItem("__ff_settings_url",      cfg.settingsUrl);
+  localStorage.setItem("__ff_settings_urls",     JSON.stringify(cfg.settingsUrls || []));
   localStorage.setItem("__ff_root_path",         cfg.rootPath || "data");
   localStorage.setItem("__ff_overrides_enabled", String(cfg.overridesEnabled     !== false));
   localStorage.setItem("__ff_text_ovr_enabled",  String(cfg.textOverridesEnabled !== false));
@@ -96,26 +96,32 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     switch (msg.type) {
-      case "FETCH_FLAGS": {
-        // The API may be POST/cross-origin — we can't fetch it directly from the extension.
-        // content-inject.js (MAIN world) intercepts the page's natural request and populates the cache.
-        const lastSections    = JSON.parse(localStorage.getItem(KEY_LAST)         || "null");
-        const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)          || "{}");
-        const lastText        = JSON.parse(localStorage.getItem(KEY_LAST_TEXT)    || "null");
-        const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)     || "{}");
-        const lastNested      = JSON.parse(localStorage.getItem(KEY_LAST_NESTED)  || "null");
-        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)  || "{}");
-        reply({ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides });
-        break;
-      }
+      case "FETCH_FLAGS":
       case "GET_STATE": {
-        const lastSections    = JSON.parse(localStorage.getItem(KEY_LAST)         || "null");
-        const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)          || "{}");
-        const lastText        = JSON.parse(localStorage.getItem(KEY_LAST_TEXT)    || "null");
-        const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)    || "{}");
-        const lastNested      = JSON.parse(localStorage.getItem(KEY_LAST_NESTED)  || "null");
-        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)  || "{}");
-        reply({ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides });
+        // content-inject.js writes one cache entry per URL index; merge them all here.
+        const urls = JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]");
+        const lastSections = {};
+        let   lastText     = null;
+        const lastNested   = {};
+        for (let i = 0; i < urls.length; i++) {
+          const s = JSON.parse(localStorage.getItem(`${KEY_LAST}_${i}`)        || "null");
+          if (s) Object.assign(lastSections, s);
+          const t = JSON.parse(localStorage.getItem(`${KEY_LAST_TEXT}_${i}`)   || "null");
+          if (t) { lastText = lastText || {}; Object.assign(lastText, t); }
+          const n = JSON.parse(localStorage.getItem(`${KEY_LAST_NESTED}_${i}`) || "null");
+          if (n) Object.assign(lastNested, n);
+        }
+        const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");
+        const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)  || "{}");
+        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)|| "{}");
+        reply({
+          lastSections: Object.keys(lastSections).length ? lastSections : null,
+          overrides,
+          lastText,
+          textOverrides,
+          lastNested: Object.keys(lastNested).length ? lastNested : null,
+          nestedOverrides,
+        });
         break;
       }
       case "SET_OVERRIDE": {

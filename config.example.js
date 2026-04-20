@@ -2,8 +2,8 @@
 // config.js est ignoré par git (.gitignore).
 
 var FF_CONFIG = {
-  // URL complète de l'endpoint à intercepter (peut être sur un host différent de la page courante)
-  settingsUrl: "https://your-app.example.com/api/settings",
+  // URL(s) des endpoints à intercepter (un ou plusieurs, host différent autorisé)
+  settingsUrls: ["https://your-app.example.com/api/settings"],
 
   // Propriété racine dans la réponse JSON (notation pointée, ex. "data" ou "response.data")
   // Le script détecte automatiquement :
