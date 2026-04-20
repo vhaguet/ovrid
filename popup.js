@@ -83,10 +83,11 @@ function renderSettings(config) {
   const hiddenNested = new Set(config.hiddenNestedSections || []);
   const nestedToggles = nestedSections.length
     ? `<div class="settings-section-divider">Sections imbriquées</div>
-       ${nestedSections.map(({ path }) => {
-         const key = path.split(".").pop();
-         const visible = !hiddenNested.has(key);
-         return `
+       ${nestedSections
+         .map(({ path }) => {
+           const key = path.split(".").pop();
+           const visible = !hiddenNested.has(key);
+           return `
            <div class="settings-field settings-toggle-row">
              <span class="settings-toggle-label">${key}</span>
              <div class="toggle-wrap">
@@ -99,7 +100,8 @@ function renderSettings(config) {
                </label>
              </div>
            </div>`;
-       }).join("")}`
+         })
+         .join("")}`
     : "";
 
   panel.innerHTML = `
@@ -133,16 +135,12 @@ function msg(tabId, payload) {
   });
 }
 
-function totalOverrides(overrides, textOverrides, nestedOverrides) {
+function totalOverrides(overrides, nestedOverrides) {
   const toggleCount = Object.values(overrides).reduce(
     (sum, sec) => sum + Object.keys(sec).length,
     0,
   );
-  return (
-    toggleCount +
-    Object.keys(textOverrides).length +
-    Object.keys(nestedOverrides || {}).length
-  );
+  return toggleCount + Object.keys(nestedOverrides || {}).length;
 }
 
 function filterState(state, query) {
@@ -169,13 +167,6 @@ function filterState(state, query) {
   return {
     ...state,
     lastSections: filteredSections,
-    lastText: state.lastText
-      ? Object.fromEntries(
-          Object.entries(state.lastText).filter(([k]) =>
-            k.toLowerCase().includes(q),
-          ),
-        )
-      : null,
     lastNested: Object.keys(filteredNested).length ? filteredNested : null,
   };
 }
@@ -212,17 +203,15 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const {
-    lastSections,
-    overrides,
-    lastText,
-    textOverrides,
-    lastNested,
-    nestedOverrides,
-  } = filterState(state, query);
+  const { lastSections, overrides, lastNested, nestedOverrides } = filterState(
+    state,
+    query,
+  );
   const hiddenNested = new Set(activeConfig.hiddenNestedSections || []);
   const visibleNested = lastNested
-    ? Object.fromEntries(Object.entries(lastNested).filter(([k]) => !hiddenNested.has(k)))
+    ? Object.fromEntries(
+        Object.entries(lastNested).filter(([k]) => !hiddenNested.has(k)),
+      )
     : null;
   const searchBar = document.getElementById("search-bar");
   const main = document.getElementById("main-content");
@@ -231,9 +220,8 @@ function renderFlags(state, query = "") {
 
   const hasData =
     Object.keys(lastSections || {}).length > 0 ||
-    lastText !== null ||
     (visibleNested && Object.keys(visibleNested).length > 0);
-  searchBar.classList.toggle("hidden", !hasData);
+  searchBar.classList.remove("hidden");
 
   if (!hasData) {
     main.innerHTML = `
@@ -248,7 +236,7 @@ function renderFlags(state, query = "") {
     return;
   }
 
-  const total = totalOverrides(overrides, textOverrides, nestedOverrides);
+  const total = totalOverrides(overrides, nestedOverrides);
   if (total > 0) {
     statusBar.classList.remove("hidden");
     statusText.textContent = `${total} override${total > 1 ? "s" : ""} actif${total > 1 ? "s" : ""}`;
@@ -300,48 +288,6 @@ function renderFlags(state, query = "") {
           ${
             hasOverride
               ? `<button class="reset-flag-btn" data-id="${itemId}" data-section="${sectionName}" title="Réinitialiser">✕</button>`
-              : '<span style="width:18px"></span>'
-          }
-        </div>`;
-      section.appendChild(row);
-    }
-
-    main.appendChild(section);
-  }
-
-  // --- Text section ---
-  const textEntries = lastText ? Object.entries(lastText) : [];
-  if (textEntries.length > 0) {
-    const section = document.createElement("div");
-    section.className = "category";
-
-    const header = document.createElement("div");
-    header.className = "category-header";
-    header.textContent = "text";
-    section.appendChild(header);
-
-    for (const [key, originalVal] of textEntries) {
-      const hasOverride = key in textOverrides;
-      const effectiveVal = hasOverride ? textOverrides[key] : originalVal;
-      const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
-      const safeValue = String(effectiveVal).replace(/"/g, "&quot;");
-
-      const row = document.createElement("div");
-      row.className = "flag-row";
-      row.innerHTML = `
-        <div class="flag-info">
-          <div class="flag-name${hasOverride ? " overridden" : ""}">${key}</div>
-          ${hasOverride ? `<div class="original-badge">Valeur API : ${originalVal}</div>` : ""}
-        </div>
-        <div class="text-wrap">
-          <input type="text"
-            class="text-override-input${hasOverride ? " overridden" : ""}"
-            data-key="${key}"
-            data-original="${safeOriginal}"
-            value="${safeValue}">
-          ${
-            hasOverride
-              ? `<button class="reset-flag-btn" data-key="${key}" title="Réinitialiser">✕</button>`
               : '<span style="width:18px"></span>'
           }
         </div>`;
@@ -519,7 +465,8 @@ async function init() {
       if (toggle) {
         if (currentState) renderFlags(currentState, searchQuery());
       } else {
-        document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
+        document.getElementById("reload-text").textContent =
+          "Rechargez pour appliquer les paramètres";
         document.getElementById("reload-bar").classList.remove("hidden");
       }
     });
@@ -576,20 +523,6 @@ async function init() {
     await refresh(tabId);
   });
 
-  // Text input change (on blur / Enter)
-  document.addEventListener("change", async (e) => {
-    if (!e.target.matches("input.text-override-input")) return;
-    if (e.target.dataset.nestedKey) return; // handled below
-    const { key, original } = e.target.dataset;
-    const newValue = e.target.value;
-    if (newValue === original) {
-      await msg(tabId, { type: "CLEAR_TEXT_OVERRIDE", key });
-    } else {
-      await msg(tabId, { type: "SET_TEXT_OVERRIDE", key, value: newValue });
-    }
-    await refresh(tabId);
-  });
-
   // Nested ON/OFF toggle change
   document.addEventListener("change", async (e) => {
     if (!e.target.matches("input.nested-toggle-input")) return;
@@ -623,16 +556,6 @@ async function init() {
     if (!e.target.matches(".reset-flag-btn[data-id]")) return;
     const { id, section } = e.target.dataset;
     await msg(tabId, { type: "CLEAR_OVERRIDE", id, section });
-    await refresh(tabId);
-  });
-
-  // Reset individual text
-  document.addEventListener("click", async (e) => {
-    if (!e.target.matches(".reset-flag-btn[data-key]")) return;
-    await msg(tabId, {
-      type: "CLEAR_TEXT_OVERRIDE",
-      key: e.target.dataset.key,
-    });
     await refresh(tabId);
   });
 

@@ -5,8 +5,6 @@
 
   const KEY_LAST        = "__ff_last_flags";
   const KEY_OVR         = "__ff_overrides";
-  const KEY_LAST_TEXT   = "__ff_last_text";
-  const KEY_TEXT_OVR    = "__ff_text_overrides";
   const KEY_NESTED_OVR  = "__ff_nested_overrides";
   const KEY_LAST_NESTED = "__ff_last_nested";
 
@@ -57,10 +55,6 @@
 
   function getOverrides() {
     try { return JSON.parse(localStorage.getItem(KEY_OVR) || "{}"); } catch { return {}; }
-  }
-
-  function getTextOverrides() {
-    try { return JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}"); } catch { return {}; }
   }
 
   function getNestedOverrides() {
@@ -143,40 +137,32 @@
     const rootObj = getByPath(json, rootPath);
     if (!rootObj || typeof rootObj !== "object" || Array.isArray(rootObj)) return null;
 
-    const overrides     = getOverrides();
-    const textOverrides = getTextOverrides();
+    const overrides        = getOverrides();
     const detectedSections = {};
-    const detectedText     = {};
 
     for (const [key, val] of Object.entries(rootObj)) {
-      if (Array.isArray(val) && val.length > 0 && val[0] !== null && typeof val[0] === "object") {
-        const idKey    = detectIdKey(val[0]);
-        const valueKey = detectValueKey(val[0]);
-        if (!idKey || !valueKey) continue;
+      if (!Array.isArray(val) || val.length === 0 || val[0] === null || typeof val[0] !== "object") continue;
+      const idKey    = detectIdKey(val[0]);
+      const valueKey = detectValueKey(val[0]);
+      if (!idKey || !valueKey) continue;
 
-        detectedSections[key] = { idKey, valueKey, items: val };
+      detectedSections[key] = { idKey, valueKey, items: val };
 
-        const sectionOverrides = overrides[key] || {};
-        if (Object.keys(sectionOverrides).length) {
-          const patched = val.map((item) =>
-            item[idKey] in sectionOverrides
-              ? { ...item, [valueKey]: sectionOverrides[item[idKey]] }
-              : item,
-          );
-          result = setByPath(result, `${rootPath}.${key}`, patched);
-          changed = true;
-        }
-      } else if (val !== null && !Array.isArray(val) && typeof val !== "object") {
-        detectedText[key] = val;
+      const sectionOverrides = overrides[key] || {};
+      if (Object.keys(sectionOverrides).length) {
+        const patched = val.map((item) =>
+          item[idKey] in sectionOverrides
+            ? { ...item, [valueKey]: sectionOverrides[item[idKey]] }
+            : item,
+        );
+        result = setByPath(result, `${rootPath}.${key}`, patched);
+        changed = true;
       }
     }
 
     const sfx = `_${urlKey}`;
     if (Object.keys(detectedSections).length) {
       localStorage.setItem(KEY_LAST + sfx, JSON.stringify(detectedSections));
-    }
-    if (Object.keys(detectedText).length) {
-      localStorage.setItem(KEY_LAST_TEXT + sfx, JSON.stringify(detectedText));
     }
 
     try {
@@ -186,21 +172,6 @@
         if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED + sfx, JSON.stringify(lastNested));
       }
     } catch (e) { console.error("[ovrid] nested cache error", e); }
-
-    if (Object.keys(textOverrides).length) {
-      const rootCopy = { ...getByPath(result, rootPath) };
-      let textChanged = false;
-      for (const [k, v] of Object.entries(textOverrides)) {
-        if (k in rootCopy && rootCopy[k] !== null && typeof rootCopy[k] !== "object" && !Array.isArray(rootCopy[k])) {
-          rootCopy[k] = v;
-          textChanged = true;
-        }
-      }
-      if (textChanged) {
-        result = setByPath(result, rootPath, rootCopy);
-        changed = true;
-      }
-    }
 
     const nestedOverrides = getNestedOverrides();
     if (nestedSections.length && Object.keys(nestedOverrides).length) {
@@ -233,7 +204,7 @@
     }
   };
 
-  // --- XHR (axios fallback) ---
+  // --- XHR ---
   const origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     this._ffUrl = url;

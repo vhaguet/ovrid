@@ -17,7 +17,7 @@ Supporte les overrides de **toggles booléens** (tableaux d'items), de **valeurs
 │         réponse patchée  ◄──     lit localStorage   │
 └────────────────────────┬────────────────────────────┘
                          │ localStorage
-                         │ __ff_last_flags_N / __ff_last_text_N / __ff_last_nested_N  (N = index URL)
+                         │ __ff_last_flags_N / __ff_last_nested_N  (N = index URL)
                          │ __ff_overrides  / __ff_text_overrides / __ff_nested_overrides
                          │ __ff_settings_urls / __ff_root_path / __ff_nested_sections / …
 ┌────────────────────────┴────────────────────────────┐
@@ -218,7 +218,6 @@ Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 | Clé                      | Contenu                                                              | Rôle                                                                                   |
 | ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `__ff_last_flags_{key}`  | `{ [sectionKey]: { idKey, valueKey, items } }`                       | sections de toggles détectées pour l'endpoint `key` — référence affichée dans le popup |
-| `__ff_last_text_{key}`   | `{ [key]: value }`                                                   | valeurs scalaires originales pour l'endpoint `key`                                     |
 | `__ff_last_nested_{key}` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'endpoint `key`                                        |
 | `__ff_overrides`         | `{ [sectionKey]: { [itemId]: boolean } }`                            | overrides de toggles par section — lu par `content-inject.js`                          |
 | `__ff_text_overrides`    | `{ [key]: string }`                                                  | overrides de texte — lu par `content-inject.js`                                        |
