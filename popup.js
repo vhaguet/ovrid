@@ -1,7 +1,7 @@
 const CONFIG_STORAGE_KEY = "__ff_config_settings";
 
 const SETTINGS_FIELDS = [
-  { key: "settingsUrls",        label: "URLs des endpoints (une par ligne)", type: "textarea" },
+  { key: "settingsUrls",        label: "URLs des endpoints (clé url, une par ligne)", type: "url-objects" },
   { key: "rootPath",            label: "Propriété racine (JSON)" },
   { key: "storageKeyLast",      label: "Clé cache (localStorage)", advanced: true },
   { key: "storageKeyOverrides", label: "Clé overrides (localStorage)", advanced: true },
@@ -29,11 +29,17 @@ function renderSettings(config) {
   const panel = document.getElementById("settings-panel");
 
   const renderField = (field) => {
-    const toDisplayVal = (v) => field.type === "textarea" && Array.isArray(v) ? v.join("\n") : String(v);
+    const toDisplayVal = (v) => {
+      if (field.type === "url-objects" && Array.isArray(v))
+        return v.map(({ key, url }) => `${key} ${url}`).join("\n");
+      if (field.type === "textarea" && Array.isArray(v))
+        return v.join("\n");
+      return String(v);
+    };
     const val        = toDisplayVal(config[field.key] ?? "");
     const defVal     = toDisplayVal(FF_CONFIG[field.key] ?? "");
     const isModified = val !== defVal;
-    if (field.type === "textarea") {
+    if (field.type === "textarea" || field.type === "url-objects") {
       return `
         <div class="settings-field">
           <div class="settings-field-label">
@@ -42,7 +48,7 @@ function renderSettings(config) {
           </div>
           <textarea id="cfg-${field.key}"
             class="settings-input${isModified ? " modified" : ""}"
-            data-key="${field.key}" data-type="array"
+            data-key="${field.key}" data-type="${field.type}"
             rows="3" spellcheck="false">${escapeAttr(val)}</textarea>
         </div>`;
     }
@@ -424,9 +430,12 @@ async function init() {
     if (!input && !toggle) return;
 
     if (input) {
-      const val = input.dataset.type === "array"
-        ? input.value.split("\n").map((s) => s.trim()).filter(Boolean)
-        : input.value;
+      const lines = input.value.split("\n").map((s) => s.trim()).filter(Boolean);
+      const val = input.dataset.type === "url-objects"
+        ? lines.map((line) => { const i = line.indexOf(" "); return i > 0 ? { key: line.slice(0, i), url: line.slice(i + 1).trim() } : null; }).filter(Boolean)
+        : input.dataset.type === "array"
+          ? lines
+          : input.value;
       activeConfig = { ...activeConfig, [input.dataset.key]: val };
     }
     if (toggle) activeConfig = { ...activeConfig, [toggle.dataset.key]: toggle.checked };

@@ -51,14 +51,10 @@
     }
   }
 
-  function getUrlIndex(url) {
-    if (typeof url !== "string") return -1;
+  function getUrlKey(url) {
+    if (typeof url !== "string") return null;
     const urls = JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]");
-    return urls.findIndex((u) => matchesUrl(url, u));
-  }
-
-  function isTarget(url) {
-    return getUrlIndex(url) >= 0;
+    return urls.find(({ url: u }) => matchesUrl(url, u))?.key ?? null;
   }
 
   function getOverrides() {
@@ -141,7 +137,7 @@
       ?? Object.keys(obj).find((k) => typeof obj[k] === "boolean");
   }
 
-  function applyOverrides(json, urlIdx) {
+  function applyOverrides(json, urlKey) {
     const { rootPath, overridesEnabled, textOverridesEnabled, nestedSections } = getCfg();
     let result = json;
     let changed = false;
@@ -179,7 +175,7 @@
       }
     }
 
-    const sfx = `_${urlIdx}`;
+    const sfx = `_${urlKey}`;
     if (Object.keys(detectedSections).length) {
       localStorage.setItem(KEY_LAST + sfx, JSON.stringify(detectedSections));
     }
@@ -229,11 +225,11 @@
   window.fetch = async function (...args) {
     const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
     const response = await origFetch.apply(this, args);
-    const urlIdx = getUrlIndex(url);
-    if (urlIdx < 0) return response;
+    const urlKey = getUrlKey(url);
+    if (!urlKey) return response;
     try {
       const json = await response.clone().json();
-      const patched = applyOverrides(json, urlIdx);
+      const patched = applyOverrides(json, urlKey);
       if (!patched) return response;
       return new Response(JSON.stringify(patched));
     } catch {
@@ -250,13 +246,13 @@
 
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (...args) {
-    const urlIdx = getUrlIndex(this._ffUrl ?? "");
-    if (urlIdx >= 0) {
+    const urlKey = getUrlKey(this._ffUrl ?? "");
+    if (urlKey) {
       this.addEventListener("readystatechange", function () {
         if (this.readyState !== 4) return;
         try {
           const json = JSON.parse(this.responseText);
-          const patched = applyOverrides(json, urlIdx);
+          const patched = applyOverrides(json, urlKey);
           if (!patched) return;
           const body = JSON.stringify(patched);
           Object.defineProperty(this, "responseText", {

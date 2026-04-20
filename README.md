@@ -65,7 +65,7 @@ Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. L
 | Overrides de toggles | Active/désactive l'interception des tableaux booléens |
 | Overrides de texte | Active/désactive l'interception des propriétés scalaires |
 | Sections imbriquées uniquement | Masque les sections toggles et texte — affiche uniquement les nested sections |
-| URLs des endpoints | Une URL par ligne — chaque endpoint est intercepté indépendamment |
+| URLs des endpoints | Une entrée `clé url` par ligne — chaque endpoint a son propre slot localStorage |
 | Propriété racine (JSON) | Chemin vers l'objet racine dans la réponse (notation pointée) |
 | Clé cache (avancé) | Clé `localStorage` interne pour le cache des items |
 | Clé overrides (avancé) | Clé `localStorage` interne pour les overrides de toggles |
@@ -79,7 +79,10 @@ Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par déf
 ```js
 var FF_CONFIG = {
   // Un ou plusieurs endpoints à intercepter (peuvent être cross-origin)
-  settingsUrls: ["https://your-app.example.com/api/settings"],
+  // La clé sert de suffixe aux entrées localStorage (ex. __ff_last_flags_prod)
+  settingsUrls: [
+    { key: "prod", url: "https://your-app.example.com/api/settings" },
+  ],
 
   // Chemin vers l'objet racine dans la réponse JSON (notation pointée)
   // Les tableaux d'objets → sections de toggles (idKey/valueKey auto-détectés)
@@ -94,6 +97,9 @@ var FF_CONFIG = {
   //     valueKey: "parameterValue",
   //   },
   // ],
+
+  // Si true, masque les sections auto-détectées (toggles et texte) dans le popup
+  onlyNestedSections: false,
 
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
@@ -160,7 +166,7 @@ Avec `rootPath: "characteristics"` et la config ci-dessus, les items sont affich
 
 Pour pointer sur un ou plusieurs endpoints :
 
-1. **Popup → Paramètres** — modifier `URLs des endpoints`, une URL par ligne (ou éditer `settingsUrls` dans `config.js`)
+1. **Popup → Paramètres** — modifier `URLs des endpoints`, format `clé url` une par ligne (ou éditer `settingsUrls` dans `config.js`)
 
 > Le manifest utilise `<all_urls>` — le content script MAIN world vérifie l'URL cible à l'exécution via `localStorage`. Aucune modification du `manifest.json` n'est nécessaire pour changer d'instance.
 
@@ -187,7 +193,8 @@ Le script s'exécute à `document_start` dans le monde MAIN — **avant tout scr
 const origFetch = window.fetch;
 window.fetch = async function (...args) {
   const response = await origFetch.apply(this, args);
-  if (!isTarget(url)) return response;
+  const urlKey = getUrlKey(url);
+  if (!urlKey) return response;
   // … lit les overrides, reconstruit la réponse
 };
 ```
@@ -211,9 +218,9 @@ Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 
 | Clé | Contenu | Rôle |
 |---|---|---|
-| `__ff_last_flags_N` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées pour l'URL d'index N — référence affichée dans le popup |
-| `__ff_last_text_N` | `{ [key]: value }` | valeurs scalaires originales pour l'URL d'index N |
-| `__ff_last_nested_N` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'URL d'index N |
+| `__ff_last_flags_{key}` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées pour l'endpoint `key` — référence affichée dans le popup |
+| `__ff_last_text_{key}` | `{ [key]: value }` | valeurs scalaires originales pour l'endpoint `key` |
+| `__ff_last_nested_{key}` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'endpoint `key` |
 | `__ff_overrides` | `{ [sectionKey]: { [itemId]: boolean } }` | overrides de toggles par section — lu par `content-inject.js` |
 | `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
 | `__ff_nested_overrides` | `{ [compositeKey]: string }` | overrides imbriqués — lu par `content-inject.js` |
@@ -223,7 +230,7 @@ Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 | `__ff_overrides_enabled` | `"true"` / `"false"` | activation des overrides de toggles |
 | `__ff_text_ovr_enabled` | `"true"` / `"false"` | activation des overrides de texte |
 
-> Les caches `__ff_last_*_N` sont écrits par `content-inject.js` lors de l'interception — `N` est l'index de l'URL dans `settingsUrls`. `content-bridge.js` les merge tous pour les renvoyer au popup.
+> Les caches `__ff_last_*_{key}` sont écrits par `content-inject.js` lors de l'interception — `key` est la clé définie dans `settingsUrls`. `content-bridge.js` les merge tous pour les renvoyer au popup.
 
 Les clés `__ff_*` sont écrites par `content-bridge.js` au démarrage à partir de la config mergée (`chrome.storage.local` + `config.js`), puis lues par `content-inject.js` (MAIN world) qui n'a pas accès à `config.js`.
 

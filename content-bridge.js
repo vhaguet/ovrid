@@ -44,12 +44,12 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
         const lastSections = {};
         let   lastText     = null;
         const lastNested   = {};
-        for (let i = 0; i < urls.length; i++) {
-          const s = JSON.parse(localStorage.getItem(`${KEY_LAST}_${i}`)        || "null");
+        for (const { key } of urls) {
+          const s = JSON.parse(localStorage.getItem(`${KEY_LAST}_${key}`)        || "null");
           if (s) Object.assign(lastSections, s);
-          const t = JSON.parse(localStorage.getItem(`${KEY_LAST_TEXT}_${i}`)   || "null");
+          const t = JSON.parse(localStorage.getItem(`${KEY_LAST_TEXT}_${key}`)   || "null");
           if (t) { lastText = lastText || {}; Object.assign(lastText, t); }
-          const n = JSON.parse(localStorage.getItem(`${KEY_LAST_NESTED}_${i}`) || "null");
+          const n = JSON.parse(localStorage.getItem(`${KEY_LAST_NESTED}_${key}`) || "null");
           if (n) Object.assign(lastNested, n);
         }
         const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");

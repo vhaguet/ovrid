@@ -3,7 +3,9 @@
 
 var FF_CONFIG = {
   // URL(s) des endpoints à intercepter (un ou plusieurs, host différent autorisé)
-  settingsUrls: ["https://your-app.example.com/api/settings"],
+  settingsUrls: [
+    { key: "prod", url: "https://your-app.example.com/api/settings" },
+  ],
 
   // Propriété racine dans la réponse JSON (notation pointée, ex. "data" ou "response.data")
   // Le script détecte automatiquement :
@@ -22,8 +24,9 @@ var FF_CONFIG = {
   //     valueKey: "parameterValue",
   //   },
   // ],
-
+  // Si true, seules les sections imbriquées définies dans nestedSections sont surchargées (ignorer les propriétés détectées automatiquement à la racine)
+  onlyNestedSections: true,
   // Clés localStorage internes (modifier uniquement en cas de conflit)
-  storageKeyLast:      "__ff_last_flags",
+  storageKeyLast: "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",
 };
