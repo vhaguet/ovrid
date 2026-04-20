@@ -11,6 +11,18 @@ var FF_CONFIG = {
   //   — les primitives     → overrides de texte
   rootPath: "data",
 
+  // (Optionnel) Tableaux imbriqués à surcharger manuellement.
+  // path    : chemin en notation pointée depuis rootObj, chaque segment est un tableau
+  // idKeys  : clé identifiante à chaque niveau (même ordre que path)
+  // valueKey: champ à surcharger dans les items feuilles
+  // nestedSections: [
+  //   {
+  //     path: "topics.subTopics.subTopicParameters",
+  //     idKeys: ["topicCode", "subTopicCode", "parameterCode"],
+  //     valueKey: "parameterValue",
+  //   },
+  // ],
+
   // Clés localStorage internes (modifier uniquement en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",

@@ -96,9 +96,9 @@ function msg(tabId, payload) {
   });
 }
 
-function totalOverrides(overrides, textOverrides) {
+function totalOverrides(overrides, textOverrides, nestedOverrides) {
   const toggleCount = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
-  return toggleCount + Object.keys(textOverrides).length;
+  return toggleCount + Object.keys(textOverrides).length + Object.keys(nestedOverrides || {}).length;
 }
 
 function filterState(state, query) {
@@ -111,12 +111,18 @@ function filterState(state, query) {
     );
     if (filteredItems.length) filteredSections[name] = { ...section, items: filteredItems };
   }
+  const filteredNested = {};
+  for (const [name, { valueKey, items }] of Object.entries(state.lastNested || {})) {
+    const filteredItems = items.filter(({ compositeKey }) => compositeKey.toLowerCase().includes(q));
+    if (filteredItems.length) filteredNested[name] = { valueKey, items: filteredItems };
+  }
   return {
     ...state,
     lastSections: filteredSections,
     lastText: state.lastText
       ? Object.fromEntries(Object.entries(state.lastText).filter(([k]) => k.toLowerCase().includes(q)))
       : null,
+    lastNested: Object.keys(filteredNested).length ? filteredNested : null,
   };
 }
 
@@ -151,13 +157,15 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const { lastSections, overrides, lastText, textOverrides } = filterState(state, query);
+  const { lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides } = filterState(state, query);
   const searchBar  = document.getElementById("search-bar");
   const main       = document.getElementById("main-content");
   const statusBar  = document.getElementById("status-bar");
   const statusText = document.getElementById("status-text");
 
-  const hasData = (state.lastSections && Object.keys(state.lastSections).length > 0) || state.lastText !== null;
+  const hasData = (state.lastSections && Object.keys(state.lastSections).length > 0)
+    || state.lastText   !== null
+    || (state.lastNested && Object.keys(state.lastNested).length > 0);
   searchBar.classList.toggle("hidden", !hasData);
 
   if (!hasData) {
@@ -173,7 +181,7 @@ function renderFlags(state, query = "") {
     return;
   }
 
-  const total = totalOverrides(overrides, textOverrides);
+  const total = totalOverrides(overrides, textOverrides, nestedOverrides);
   if (total > 0) {
     statusBar.classList.remove("hidden");
     statusText.textContent = `${total} override${total > 1 ? "s" : ""} actif${total > 1 ? "s" : ""}`;
@@ -267,6 +275,45 @@ function renderFlags(state, query = "") {
               ? `<button class="reset-flag-btn" data-key="${key}" title="Réinitialiser">✕</button>`
               : '<span style="width:18px"></span>'
           }
+        </div>`;
+      section.appendChild(row);
+    }
+
+    main.appendChild(section);
+  }
+
+  // --- Nested sections ---
+  for (const [sectionName, { valueKey, items }] of Object.entries(lastNested || {})) {
+    const section = document.createElement("div");
+    section.className = "category";
+
+    const header = document.createElement("div");
+    header.className = "category-header";
+    header.textContent = `${sectionName} — ${valueKey}`;
+    section.appendChild(header);
+
+    for (const { compositeKey, value: originalVal } of items) {
+      const hasOverride  = compositeKey in (nestedOverrides || {});
+      const effectiveVal = hasOverride ? nestedOverrides[compositeKey] : originalVal;
+      const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
+      const safeValue    = String(effectiveVal).replace(/"/g, "&quot;");
+
+      const row = document.createElement("div");
+      row.className = "flag-row";
+      row.innerHTML = `
+        <div class="flag-info">
+          <div class="flag-name${hasOverride ? " overridden" : ""}">${compositeKey}</div>
+          ${hasOverride ? `<div class="original-badge">Valeur API : ${safeOriginal}</div>` : ""}
+        </div>
+        <div class="text-wrap">
+          <input type="text"
+            class="text-override-input nested-override-input${hasOverride ? " overridden" : ""}"
+            data-nested-key="${escapeAttr(compositeKey)}"
+            data-original="${safeOriginal}"
+            value="${safeValue}">
+          ${hasOverride
+            ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
+            : '<span style="width:18px"></span>'}
         </div>`;
       section.appendChild(row);
     }
@@ -377,12 +424,27 @@ async function init() {
   // Text input change (on blur / Enter)
   document.addEventListener("change", async (e) => {
     if (!e.target.matches("input.text-override-input")) return;
+    if (e.target.dataset.nestedKey) return; // handled below
     const { key, original } = e.target.dataset;
     const newValue = e.target.value;
     if (newValue === original) {
       await msg(tabId, { type: "CLEAR_TEXT_OVERRIDE", key });
     } else {
       await msg(tabId, { type: "SET_TEXT_OVERRIDE", key, value: newValue });
+    }
+    await refresh(tabId);
+  });
+
+  // Nested input change
+  document.addEventListener("change", async (e) => {
+    if (!e.target.matches("input.nested-override-input")) return;
+    const key      = e.target.dataset.nestedKey;
+    const original = e.target.dataset.original;
+    const newValue = e.target.value;
+    if (newValue === original) {
+      await msg(tabId, { type: "CLEAR_NESTED_OVERRIDE", key });
+    } else {
+      await msg(tabId, { type: "SET_NESTED_OVERRIDE", key, value: newValue });
     }
     await refresh(tabId);
   });
@@ -399,6 +461,13 @@ async function init() {
   document.addEventListener("click", async (e) => {
     if (!e.target.matches(".reset-flag-btn[data-key]")) return;
     await msg(tabId, { type: "CLEAR_TEXT_OVERRIDE", key: e.target.dataset.key });
+    await refresh(tabId);
+  });
+
+  // Reset individual nested
+  document.addEventListener("click", async (e) => {
+    if (!e.target.matches(".reset-flag-btn[data-nested-key]")) return;
+    await msg(tabId, { type: "CLEAR_NESTED_OVERRIDE", key: e.target.dataset.nestedKey });
     await refresh(tabId);
   });
 

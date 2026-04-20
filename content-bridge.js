@@ -1,7 +1,17 @@
 // Runs in ISOLATED world — bridges popup messages with page localStorage
 const CONFIG_STORAGE_KEY = "__ff_config_settings";
-const KEY_LAST_TEXT = "__ff_last_text";
-const KEY_TEXT_OVR  = "__ff_text_overrides";
+const KEY_LAST_TEXT   = "__ff_last_text";
+const KEY_TEXT_OVR    = "__ff_text_overrides";
+const KEY_NESTED_OVR  = "__ff_nested_overrides";
+const KEY_LAST_NESTED = "__ff_last_nested";
+
+// Publish FF_CONFIG defaults synchronously so content-inject.js (MAIN world) can read them
+// before the page makes its first API request — the async callback below will update with stored overrides.
+localStorage.setItem("__ff_settings_url",      FF_CONFIG.settingsUrl);
+localStorage.setItem("__ff_root_path",         FF_CONFIG.rootPath || "data");
+localStorage.setItem("__ff_overrides_enabled", String(FF_CONFIG.overridesEnabled     !== false));
+localStorage.setItem("__ff_text_ovr_enabled",  String(FF_CONFIG.textOverridesEnabled !== false));
+localStorage.setItem("__ff_nested_sections",   JSON.stringify(FF_CONFIG.nestedSections || []));
 
 chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   const cfg = { ...FF_CONFIG, ...(stored[CONFIG_STORAGE_KEY] || {}) };
@@ -10,18 +20,46 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   const KEY_OVR  = cfg.storageKeyOverrides;
   const SETTINGS_URL = cfg.settingsUrl;
 
-  // Publish config to localStorage so content-inject.js (MAIN world) can read it
-  localStorage.setItem("__ff_settings_url",  cfg.settingsUrl);
-  localStorage.setItem("__ff_root_path",     cfg.rootPath || "data");
+  // Update localStorage with merged config (stored popup settings take priority over FF_CONFIG)
+  localStorage.setItem("__ff_settings_url",      cfg.settingsUrl);
+  localStorage.setItem("__ff_root_path",         cfg.rootPath || "data");
   localStorage.setItem("__ff_overrides_enabled", String(cfg.overridesEnabled     !== false));
   localStorage.setItem("__ff_text_ovr_enabled",  String(cfg.textOverridesEnabled !== false));
+  localStorage.setItem("__ff_nested_sections",   JSON.stringify(cfg.nestedSections || []));
   updateBadge();
 
   function updateBadge() {
-    const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)      || "{}");
-    const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}");
-    const toggleCount   = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
-    chrome.runtime.sendMessage({ type: "UPDATE_BADGE", count: toggleCount + Object.keys(textOverrides).length });
+    const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)         || "{}");
+    const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)    || "{}");
+    const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)  || "{}");
+    const toggleCount     = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
+    chrome.runtime.sendMessage({ type: "UPDATE_BADGE", count: toggleCount + Object.keys(textOverrides).length + Object.keys(nestedOverrides).length });
+  }
+
+  // Traverse nested arrays (per nestedSections config) and return flat items with composite keys
+  function traverseNested(rootObj, ns) {
+    const { path, idKeys, valueKey } = ns;
+    const arrayKeys  = path.split(".");
+    const sectionKey = arrayKeys[arrayKeys.length - 1];
+    const items      = [];
+
+    function recurse(obj, depth, parentIds) {
+      const key = arrayKeys[depth];
+      const arr = obj?.[key];
+      if (!Array.isArray(arr)) return;
+      for (const item of arr) {
+        const id  = item[idKeys[depth]];
+        const ids = [...parentIds, id];
+        if (depth === arrayKeys.length - 1) {
+          items.push({ compositeKey: ids.join(":"), value: item[valueKey] });
+        } else {
+          recurse(item, depth + 1, ids);
+        }
+      }
+    }
+
+    recurse(rootObj, 0, []);
+    return { [sectionKey]: { valueKey, items } };
   }
 
   function getByPath(obj, path) {
@@ -59,37 +97,25 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     switch (msg.type) {
       case "FETCH_FLAGS": {
-        fetch(SETTINGS_URL, { credentials: "include" })
-          .then((r) => r.ok ? r.json() : Promise.reject(r.status))
-          .then((json) => {
-            const rootPath = cfg.rootPath || "data";
-            const rootObj  = getByPath(json, rootPath);
-            const { sections, textFields } = detectSections(rootObj);
-
-            const lastSections = Object.keys(sections).length  > 0 ? sections   : null;
-            const lastText     = Object.keys(textFields).length > 0 ? textFields : null;
-            if (lastSections) localStorage.setItem(KEY_LAST,      JSON.stringify(lastSections));
-            if (lastText)     localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(lastText));
-
-            const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)      || "{}");
-            const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}");
-            reply({ lastSections, overrides, lastText, textOverrides });
-          })
-          .catch(() => {
-            const lastSections  = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
-            const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");
-            const lastText      = JSON.parse(localStorage.getItem(KEY_LAST_TEXT) || "null");
-            const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)  || "{}");
-            reply({ lastSections, overrides, lastText, textOverrides, fetchError: true });
-          });
-        return true;
+        // The API may be POST/cross-origin — we can't fetch it directly from the extension.
+        // content-inject.js (MAIN world) intercepts the page's natural request and populates the cache.
+        const lastSections    = JSON.parse(localStorage.getItem(KEY_LAST)         || "null");
+        const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)          || "{}");
+        const lastText        = JSON.parse(localStorage.getItem(KEY_LAST_TEXT)    || "null");
+        const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)     || "{}");
+        const lastNested      = JSON.parse(localStorage.getItem(KEY_LAST_NESTED)  || "null");
+        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)  || "{}");
+        reply({ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides });
+        break;
       }
       case "GET_STATE": {
-        const lastSections  = JSON.parse(localStorage.getItem(KEY_LAST)      || "null");
-        const overrides     = JSON.parse(localStorage.getItem(KEY_OVR)       || "{}");
-        const lastText      = JSON.parse(localStorage.getItem(KEY_LAST_TEXT) || "null");
-        const textOverrides = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)  || "{}");
-        reply({ lastSections, overrides, lastText, textOverrides });
+        const lastSections    = JSON.parse(localStorage.getItem(KEY_LAST)         || "null");
+        const overrides       = JSON.parse(localStorage.getItem(KEY_OVR)          || "{}");
+        const lastText        = JSON.parse(localStorage.getItem(KEY_LAST_TEXT)    || "null");
+        const textOverrides   = JSON.parse(localStorage.getItem(KEY_TEXT_OVR)    || "{}");
+        const lastNested      = JSON.parse(localStorage.getItem(KEY_LAST_NESTED)  || "null");
+        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR)  || "{}");
+        reply({ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides });
         break;
       }
       case "SET_OVERRIDE": {
@@ -128,9 +154,26 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
         reply({ ok: true });
         break;
       }
+      case "SET_NESTED_OVERRIDE": {
+        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR) || "{}");
+        nestedOverrides[msg.key] = msg.value;
+        localStorage.setItem(KEY_NESTED_OVR, JSON.stringify(nestedOverrides));
+        updateBadge();
+        reply({ ok: true });
+        break;
+      }
+      case "CLEAR_NESTED_OVERRIDE": {
+        const nestedOverrides = JSON.parse(localStorage.getItem(KEY_NESTED_OVR) || "{}");
+        delete nestedOverrides[msg.key];
+        localStorage.setItem(KEY_NESTED_OVR, JSON.stringify(nestedOverrides));
+        updateBadge();
+        reply({ ok: true });
+        break;
+      }
       case "RESET_ALL": {
         localStorage.removeItem(KEY_OVR);
         localStorage.removeItem(KEY_TEXT_OVR);
+        localStorage.removeItem(KEY_NESTED_OVR);
         updateBadge();
         reply({ ok: true });
         break;

@@ -2,7 +2,7 @@
 
 Extension Chrome permettant de visualiser et surcharger en temps réel des propriétés d'une réponse HTTP JSON, sans modifier le code source ni l'API.
 
-Supporte les overrides de **toggles booléens** (tableaux d'items) et de **valeurs texte** (propriétés scalaires) — auto-détectés à partir d'un chemin racine configurable.
+Supporte les overrides de **toggles booléens** (tableaux d'items), de **valeurs texte** (propriétés scalaires) et de **tableaux imbriqués** (structures multi-niveaux comme `topics > subTopics > subTopicParameters`) — auto-détectés ou déclarés explicitement via `nestedSections`.
 
 ---
 
@@ -17,9 +17,9 @@ Supporte les overrides de **toggles booléens** (tableaux d'items) et de **valeu
 │         réponse patchée  ◄──     lit localStorage   │
 └────────────────────────┬────────────────────────────┘
                          │ localStorage
-                         │ __ff_last_flags / __ff_last_text
-                         │ __ff_overrides  / __ff_text_overrides
-                         │ __ff_settings_url / __ff_root_path / …
+                         │ __ff_last_flags / __ff_last_text / __ff_last_nested
+                         │ __ff_overrides  / __ff_text_overrides / __ff_nested_overrides
+                         │ __ff_settings_url / __ff_root_path / __ff_nested_sections / …
 ┌────────────────────────┴────────────────────────────┐
 │              content-bridge.js                      │
 │              (ISOLATED world)                       │
@@ -85,6 +85,15 @@ var FF_CONFIG = {
   // Les primitives → champs texte overridables
   rootPath: "data",
 
+  // (Optionnel) Tableaux imbriqués à surcharger — voir section "Nested sections" ci-dessous
+  // nestedSections: [
+  //   {
+  //     path: "topics.subTopics.subTopicParameters",
+  //     idKeys: ["topicCode", "subTopicCode", "parameterCode"],
+  //     valueKey: "parameterValue",
+  //   },
+  // ],
+
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
   storageKeyLast:      "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",
@@ -98,6 +107,45 @@ var FF_CONFIG = {
 - **Tableau d'objets** → section de toggles. La clé d'identification (`id`, `key`, `name`…) et la propriété booléenne (`enabled`, `active`, `on`…) sont détectées automatiquement sur le premier item.
 - **Valeur primitive** (string, number…) → champ texte overridable.
 - **Objet ou tableau vide** → ignoré.
+
+### Nested sections
+
+Pour des structures profondément imbriquées (ex. `topics > subTopics > subTopicParameters`), le mécanisme d'auto-détection ne suffit pas. Déclarer explicitement le chemin via `nestedSections` dans `config.js` :
+
+```js
+nestedSections: [
+  {
+    path: "topics.subTopics.subTopicParameters",  // chemin en notation pointée, chaque segment est un tableau
+    idKeys: ["topicCode", "subTopicCode", "parameterCode"],  // clé identifiante à chaque niveau
+    valueKey: "parameterValue",  // champ à surcharger dans les items feuilles
+  },
+],
+```
+
+Le script traverse récursivement chaque niveau et construit une **clé composite** pour identifier chaque item feuille (`topicCode:subTopicCode:parameterCode`). Cette clé est affichée dans le popup et sert de clé d'override.
+
+**Exemple de réponse supportée :**
+```json
+{
+  "characteristics": {
+    "topics": [
+      {
+        "topicCode": "THEME_A",
+        "subTopics": [
+          {
+            "subTopicCode": "CAT_1",
+            "subTopicParameters": [
+              { "parameterCode": "PARAM_X", "parameterValue": "OFF", "parameterCategoryCode": "3" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Avec `rootPath: "characteristics"` et la config ci-dessus, la clé composite `THEME_A:CAT_1:PARAM_X` apparaît dans le popup avec un champ texte éditable.
 
 ### Exemples de `rootPath`
 
@@ -149,8 +197,9 @@ Quand l'app appelle l'endpoint configuré (`settingsUrl`) :
 2. `getByPath(json, rootPath)` extrait l'objet racine
 3. **Overrides de toggles** : chaque sous-tableau est parcouru — les overrides de `__ff_overrides[sectionKey][itemId]` sont appliqués sur la propriété booléenne auto-détectée
 4. **Overrides texte** : les primitives de l'objet racine sont remplacées par les valeurs de `__ff_text_overrides`
-5. `setByPath` reconstruit le JSON complet pour chaque section modifiée
-6. L'app reçoit la réponse patchée
+5. **Overrides imbriqués** : chaque `nestedSection` est traversée récursivement — les items dont la clé composite correspond à `__ff_nested_overrides` ont leur `valueKey` remplacé
+6. `setByPath` reconstruit le JSON complet pour chaque section modifiée
+7. L'app reçoit la réponse patchée
 
 > **Pourquoi `"world": "MAIN"` dans le manifest ?**
 > Sans ça, le content script tourne dans un sandbox isolé où `window.fetch` est une copie — wrapper cette copie n'affecte pas la page. `"world": "MAIN"` est l'équivalent de `@run-at document-start` de Tampermonkey.
@@ -161,12 +210,15 @@ Quand l'app appelle l'endpoint configuré (`settingsUrl`) :
 
 | Clé | Contenu | Rôle |
 |---|---|---|
-| `__ff_last_flags` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections détectées — référence affichée dans le popup |
+| `__ff_last_flags` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées — référence affichée dans le popup |
 | `__ff_overrides` | `{ [sectionKey]: { [itemId]: boolean } }` | overrides de toggles par section — lu par `content-inject.js` |
 | `__ff_last_text` | `{ [key]: value }` | valeurs scalaires originales |
 | `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
+| `__ff_last_nested` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections — référence affichée dans le popup |
+| `__ff_nested_overrides` | `{ [compositeKey]: string }` | overrides imbriqués — lu par `content-inject.js` |
 | `__ff_settings_url` | string | URL complète de l'endpoint |
 | `__ff_root_path` | string | chemin vers l'objet racine dans le JSON |
+| `__ff_nested_sections` | JSON (array) | config `nestedSections` sérialisée — lue par `content-inject.js` |
 | `__ff_overrides_enabled` | `"true"` / `"false"` | activation des overrides de toggles |
 | `__ff_text_ovr_enabled` | `"true"` / `"false"` | activation des overrides de texte |
 
@@ -202,13 +254,15 @@ Le badge rouge (nombre d'overrides actifs) est mis à jour par `content-bridge.j
 
 | Message | Paramètres | Action |
 |---|---|---|
-| `FETCH_FLAGS` | — | Fait un `fetch(settingsUrl)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastSections, overrides, lastText, textOverrides }` |
-| `GET_STATE` | — | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides }` |
+| `FETCH_FLAGS` | — | Fait un `fetch(settingsUrl)` depuis le contexte de la page (cookies de session inclus) — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
+| `GET_STATE` | — | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
 | `SET_OVERRIDE` | `{ id, section, value }` | Écrit `overrides[section][id] = value` dans `localStorage` |
 | `CLEAR_OVERRIDE` | `{ id, section }` | Supprime un override de toggle individuel |
 | `SET_TEXT_OVERRIDE` | `{ key, value }` | Écrit `textOverrides[key] = value` dans `localStorage` |
 | `CLEAR_TEXT_OVERRIDE` | `{ key }` | Supprime un override texte individuel |
-| `RESET_ALL` | — | Supprime `__ff_overrides` et `__ff_text_overrides` |
+| `SET_NESTED_OVERRIDE` | `{ key, value }` | Écrit `nestedOverrides[compositeKey] = value` dans `localStorage` |
+| `CLEAR_NESTED_OVERRIDE` | `{ key }` | Supprime un override imbriqué individuel |
+| `RESET_ALL` | — | Supprime `__ff_overrides`, `__ff_text_overrides` et `__ff_nested_overrides` |
 | `RELOAD_PAGE` | — | Appelle `window.location.reload()` |
 
 > **Pourquoi `FETCH_FLAGS` passe par le content script ?**

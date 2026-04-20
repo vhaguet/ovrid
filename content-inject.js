@@ -3,10 +3,12 @@
   if (window.__ff_injected) return;
   window.__ff_injected = true;
 
-  const KEY_LAST      = "__ff_last_flags";
-  const KEY_OVR       = "__ff_overrides";
-  const KEY_LAST_TEXT = "__ff_last_text";
-  const KEY_TEXT_OVR  = "__ff_text_overrides";
+  const KEY_LAST        = "__ff_last_flags";
+  const KEY_OVR         = "__ff_overrides";
+  const KEY_LAST_TEXT   = "__ff_last_text";
+  const KEY_TEXT_OVR    = "__ff_text_overrides";
+  const KEY_NESTED_OVR  = "__ff_nested_overrides";
+  const KEY_LAST_NESTED = "__ff_last_nested";
 
   // Config written by content-bridge.js (ISOLATED world) at document_start via localStorage
   function getCfg() {
@@ -15,6 +17,7 @@
       rootPath:             localStorage.getItem("__ff_root_path") || "data",
       overridesEnabled:     localStorage.getItem("__ff_overrides_enabled")  !== "false",
       textOverridesEnabled: localStorage.getItem("__ff_text_ovr_enabled")   !== "false",
+      nestedSections:       JSON.parse(localStorage.getItem("__ff_nested_sections") || "[]"),
     };
   }
 
@@ -54,6 +57,69 @@
 
   function getTextOverrides() {
     try { return JSON.parse(localStorage.getItem(KEY_TEXT_OVR) || "{}"); } catch { return {}; }
+  }
+
+  function getNestedOverrides() {
+    try { return JSON.parse(localStorage.getItem(KEY_NESTED_OVR) || "{}"); } catch { return {}; }
+  }
+
+  // Collect all leaf items from a nested array structure (mirrors traverseNested in content-bridge.js)
+  function collectNested(rootObj, ns) {
+    const { path, idKeys, valueKey } = ns;
+    const arrayKeys  = path.split(".");
+    const sectionKey = arrayKeys[arrayKeys.length - 1];
+    const items      = [];
+
+    function recurse(obj, depth, parentIds) {
+      const key = arrayKeys[depth];
+      const arr = obj?.[key];
+      if (!Array.isArray(arr)) return;
+      for (const item of arr) {
+        const id  = item[idKeys[depth]];
+        const ids = [...parentIds, id];
+        if (depth === arrayKeys.length - 1) {
+          items.push({ compositeKey: ids.join(":"), value: item[valueKey] });
+        } else {
+          recurse(item, depth + 1, ids);
+        }
+      }
+    }
+
+    recurse(rootObj, 0, []);
+    return { [sectionKey]: { valueKey, items } };
+  }
+
+  // Recursively patch a nested array structure per nestedSection config; returns new rootObj if changed
+  function patchNested(rootObj, ns, overrides) {
+    const { path, idKeys, valueKey } = ns;
+    const arrayKeys = path.split(".");
+
+    function recurse(obj, depth, parentIds) {
+      const key = arrayKeys[depth];
+      const arr = obj?.[key];
+      if (!Array.isArray(arr)) return obj;
+
+      let changed = false;
+      const newArr = arr.map((item) => {
+        const id  = item[idKeys[depth]];
+        const ids = [...parentIds, id];
+        if (depth === arrayKeys.length - 1) {
+          const compositeKey = ids.join(":");
+          if (compositeKey in overrides) {
+            changed = true;
+            return { ...item, [valueKey]: overrides[compositeKey] };
+          }
+          return item;
+        }
+        const newItem = recurse(item, depth + 1, ids);
+        if (newItem !== item) changed = true;
+        return newItem;
+      });
+
+      return changed ? { ...obj, [key]: newArr } : obj;
+    }
+
+    return recurse(rootObj, 0, []);
   }
 
   function detectIdKey(obj) {
@@ -113,6 +179,22 @@
       localStorage.setItem(KEY_LAST_TEXT, JSON.stringify(detectedText));
     }
 
+    // Cache nested sections — collected here (MAIN world) since content-bridge.js can't fetch cross-origin
+    try {
+      const { nestedSections } = getCfg();
+      console.log("[ovrid] nestedSections", nestedSections);
+      if (Array.isArray(nestedSections) && nestedSections.length) {
+        const lastNested = {};
+        for (const ns of nestedSections) {
+          const result = collectNested(rootObj, ns);
+          console.log("[ovrid] collectNested result", JSON.stringify(result).slice(0, 200));
+          Object.assign(lastNested, result);
+        }
+        console.log("[ovrid] lastNested keys", Object.keys(lastNested), "items count", Object.values(lastNested).map(s => s.items?.length));
+        if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED, JSON.stringify(lastNested));
+      }
+    } catch (e) { console.error("[ovrid] nested cache error", e); }
+
     // Text overrides
     if (textOverridesEnabled && Object.keys(textOverrides).length) {
       const rootCopy = { ...getByPath(result, rootPath) };
@@ -125,6 +207,19 @@
       }
       if (textChanged) {
         result = setByPath(result, rootPath, rootCopy);
+        changed = true;
+      }
+    }
+
+    // Nested overrides
+    const { nestedSections } = getCfg();
+    const nestedOverrides = getNestedOverrides();
+    if (nestedSections.length && Object.keys(nestedOverrides).length) {
+      let rootObj    = getByPath(result, rootPath);
+      let newRootObj = rootObj;
+      for (const ns of nestedSections) newRootObj = patchNested(newRootObj, ns, nestedOverrides);
+      if (newRootObj !== rootObj) {
+        result  = setByPath(result, rootPath, newRootObj);
         changed = true;
       }
     }
