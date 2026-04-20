@@ -13,11 +13,9 @@
   // Config written by content-bridge.js (ISOLATED world) at document_start via localStorage
   function getCfg() {
     return {
-      settingsUrls:         JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]"),
-      rootPath:             localStorage.getItem("__ff_root_path") || "data",
-      overridesEnabled:     localStorage.getItem("__ff_overrides_enabled")  !== "false",
-      textOverridesEnabled: localStorage.getItem("__ff_text_ovr_enabled")   !== "false",
-      nestedSections:       JSON.parse(localStorage.getItem("__ff_nested_sections") || "[]"),
+      settingsUrls:   JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]"),
+      rootPath:       localStorage.getItem("__ff_root_path") || "data",
+      nestedSections: JSON.parse(localStorage.getItem("__ff_nested_sections") || "[]"),
     };
   }
 
@@ -138,7 +136,7 @@
   }
 
   function applyOverrides(json, urlKey) {
-    const { rootPath, overridesEnabled, textOverridesEnabled, nestedSections } = getCfg();
+    const { rootPath, nestedSections } = getCfg();
     let result = json;
     let changed = false;
 
@@ -158,17 +156,15 @@
 
         detectedSections[key] = { idKey, valueKey, items: val };
 
-        if (overridesEnabled) {
-          const sectionOverrides = overrides[key] || {};
-          if (Object.keys(sectionOverrides).length) {
-            const patched = val.map((item) =>
-              item[idKey] in sectionOverrides
-                ? { ...item, [valueKey]: sectionOverrides[item[idKey]] }
-                : item,
-            );
-            result = setByPath(result, `${rootPath}.${key}`, patched);
-            changed = true;
-          }
+        const sectionOverrides = overrides[key] || {};
+        if (Object.keys(sectionOverrides).length) {
+          const patched = val.map((item) =>
+            item[idKey] in sectionOverrides
+              ? { ...item, [valueKey]: sectionOverrides[item[idKey]] }
+              : item,
+          );
+          result = setByPath(result, `${rootPath}.${key}`, patched);
+          changed = true;
         }
       } else if (val !== null && !Array.isArray(val) && typeof val !== "object") {
         detectedText[key] = val;
@@ -191,7 +187,7 @@
       }
     } catch (e) { console.error("[ovrid] nested cache error", e); }
 
-    if (textOverridesEnabled && Object.keys(textOverrides).length) {
+    if (Object.keys(textOverrides).length) {
       const rootCopy = { ...getByPath(result, rootPath) };
       let textChanged = false;
       for (const [k, v] of Object.entries(textOverrides)) {

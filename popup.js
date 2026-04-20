@@ -79,29 +79,8 @@ function renderSettings(config) {
   const regular = SETTINGS_FIELDS.filter((f) => !f.advanced);
   const advanced = SETTINGS_FIELDS.filter((f) => f.advanced);
 
-  const renderToggleRow = (label, key) => {
-    const isOn = config[key] !== false;
-    return `
-      <div class="settings-field settings-toggle-row">
-        <span class="settings-toggle-label">${label}</span>
-        <div class="toggle-wrap">
-          <span class="toggle-label ${isOn ? "on" : "off"}">${isOn ? "ON" : "OFF"}</span>
-          <label class="toggle">
-            <input type="checkbox" class="settings-toggle" data-key="${key}" ${isOn ? "checked" : ""}>
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>`;
-  };
-
   panel.innerHTML = `
     <div class="settings-content">
-      <div class="settings-section-divider">Overrides</div>
-      ${renderToggleRow("Overrides de toggles", "overridesEnabled")}
-      ${renderToggleRow("Overrides de texte", "textOverridesEnabled")}
-      <div class="settings-section-divider">Affichage</div>
-      ${renderToggleRow("Afficher les toggles ON/OFF", "showToggleSections")}
-      ${renderToggleRow("Afficher les textes", "showTextSections")}
       ${regular.map(renderField).join("")}
       <div class="settings-section-divider">Avancé</div>
       ${advanced.map(renderField).join("")}
@@ -209,18 +188,14 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const showToggles = activeConfig.showToggleSections !== false;
-  const showText    = activeConfig.showTextSections    !== false;
   const {
-    lastSections: rawSections,
+    lastSections,
     overrides,
-    lastText: rawText,
+    lastText,
     textOverrides,
     lastNested,
     nestedOverrides,
   } = filterState(state, query);
-  const lastSections = showToggles ? rawSections : null;
-  const lastText     = showText    ? rawText      : null;
   const searchBar = document.getElementById("search-bar");
   const main = document.getElementById("main-content");
   const statusBar = document.getElementById("status-bar");
@@ -503,23 +478,11 @@ async function init() {
               : input.value;
         activeConfig = { ...activeConfig, [input.dataset.key]: val };
       }
-      if (toggle)
-        activeConfig = {
-          ...activeConfig,
-          [toggle.dataset.key]: toggle.checked,
-        };
 
       await saveConfig(activeConfig);
       renderSettings(activeConfig);
-
-      const changedKey = (toggle ?? input).dataset.key;
-      const displayOnlyKeys = new Set(["showToggleSections", "showTextSections"]);
-      if (displayOnlyKeys.has(changedKey)) {
-        if (currentState) renderFlags(currentState, searchQuery());
-      } else {
-        document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
-        document.getElementById("reload-bar").classList.remove("hidden");
-      }
+      document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
+      document.getElementById("reload-bar").classList.remove("hidden");
     });
 
   // Settings: reset individual field to FF_CONFIG default

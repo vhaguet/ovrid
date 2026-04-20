@@ -7,11 +7,9 @@ const KEY_LAST_NESTED = "__ff_last_nested";
 
 // Publish FF_CONFIG defaults synchronously so content-inject.js (MAIN world) can read them
 // before the page makes its first API request — the async callback below will update with stored overrides.
-localStorage.setItem("__ff_settings_urls",     JSON.stringify(FF_CONFIG.settingsUrls || []));
-localStorage.setItem("__ff_root_path",         FF_CONFIG.rootPath || "data");
-localStorage.setItem("__ff_overrides_enabled", String(FF_CONFIG.overridesEnabled     !== false));
-localStorage.setItem("__ff_text_ovr_enabled",  String(FF_CONFIG.textOverridesEnabled !== false));
-localStorage.setItem("__ff_nested_sections",   JSON.stringify(FF_CONFIG.nestedSections || []));
+localStorage.setItem("__ff_settings_urls",   JSON.stringify(FF_CONFIG.settingsUrls || []));
+localStorage.setItem("__ff_root_path",       FF_CONFIG.rootPath || "data");
+localStorage.setItem("__ff_nested_sections", JSON.stringify(FF_CONFIG.nestedSections || []));
 
 chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   const cfg = { ...FF_CONFIG, ...(stored[CONFIG_STORAGE_KEY] || {}) };
@@ -20,11 +18,9 @@ chrome.storage.local.get(CONFIG_STORAGE_KEY, (stored) => {
   const KEY_OVR  = cfg.storageKeyOverrides;
 
   // Update localStorage with merged config (stored popup settings take priority over FF_CONFIG)
-  localStorage.setItem("__ff_settings_urls",     JSON.stringify(cfg.settingsUrls || []));
-  localStorage.setItem("__ff_root_path",         cfg.rootPath || "data");
-  localStorage.setItem("__ff_overrides_enabled", String(cfg.overridesEnabled     !== false));
-  localStorage.setItem("__ff_text_ovr_enabled",  String(cfg.textOverridesEnabled !== false));
-  localStorage.setItem("__ff_nested_sections",   JSON.stringify(cfg.nestedSections || []));
+  localStorage.setItem("__ff_settings_urls",   JSON.stringify(cfg.settingsUrls || []));
+  localStorage.setItem("__ff_root_path",       cfg.rootPath || "data");
+  localStorage.setItem("__ff_nested_sections", JSON.stringify(cfg.nestedSections || []));
   updateBadge();
 
   function updateBadge() {

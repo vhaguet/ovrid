@@ -60,15 +60,12 @@ Les overrides s'appliquent au **prochain rechargement** de la page.
 
 Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. Les champs configurables sont :
 
-| Champ                          | Description                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| Overrides de toggles           | Active/désactive l'interception des tableaux booléens                           |
-| Overrides de texte             | Active/désactive l'interception des propriétés scalaires                        |
-| Sections imbriquées uniquement | Masque les sections toggles et texte — affiche uniquement les nested sections   |
-| URLs des endpoints             | Une entrée `clé url` par ligne — chaque endpoint a son propre slot localStorage |
-| Propriété racine (JSON)        | Chemin vers l'objet racine dans la réponse (notation pointée)                   |
-| Clé cache (avancé)             | Clé `localStorage` interne pour le cache des items                              |
-| Clé overrides (avancé)         | Clé `localStorage` interne pour les overrides de toggles                        |
+| Champ                   | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| URLs des endpoints      | Une entrée `clé url` par ligne — chaque endpoint a son propre slot localStorage |
+| Propriété racine (JSON) | Chemin vers l'objet racine dans la réponse (notation pointée)                   |
+| Clé cache (avancé)      | Clé `localStorage` interne pour le cache des items                              |
+| Clé overrides (avancé)  | Clé `localStorage` interne pour les overrides de toggles                        |
 
 Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par défaut de `config.js`. Les modifications prennent effet au prochain rechargement de la page.
 
@@ -229,8 +226,6 @@ Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 | `__ff_settings_urls`     | JSON (array de strings)                                              | liste des endpoints à intercepter                                                      |
 | `__ff_root_path`         | string                                                               | chemin vers l'objet racine dans le JSON                                                |
 | `__ff_nested_sections`   | JSON (array)                                                         | config `nestedSections` sérialisée — lue par `content-inject.js`                       |
-| `__ff_overrides_enabled` | `"true"` / `"false"`                                                 | activation des overrides de toggles                                                    |
-| `__ff_text_ovr_enabled`  | `"true"` / `"false"`                                                 | activation des overrides de texte                                                      |
 
 > Les caches `__ff_last_*_{key}` sont écrits par `content-inject.js` lors de l'interception — `key` est la clé définie dans `settingsUrls`. `content-bridge.js` les merge tous pour les renvoyer au popup.
 
