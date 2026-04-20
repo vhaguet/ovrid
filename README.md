@@ -60,15 +60,15 @@ Les overrides s'appliquent au **prochain rechargement** de la page.
 
 Cliquer l'icône ⚙ dans le header du popup ouvre le **panneau Paramètres**. Les champs configurables sont :
 
-| Champ | Description |
-|---|---|
-| Overrides de toggles | Active/désactive l'interception des tableaux booléens |
-| Overrides de texte | Active/désactive l'interception des propriétés scalaires |
-| Sections imbriquées uniquement | Masque les sections toggles et texte — affiche uniquement les nested sections |
-| URLs des endpoints | Une entrée `clé url` par ligne — chaque endpoint a son propre slot localStorage |
-| Propriété racine (JSON) | Chemin vers l'objet racine dans la réponse (notation pointée) |
-| Clé cache (avancé) | Clé `localStorage` interne pour le cache des items |
-| Clé overrides (avancé) | Clé `localStorage` interne pour les overrides de toggles |
+| Champ                          | Description                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| Overrides de toggles           | Active/désactive l'interception des tableaux booléens                           |
+| Overrides de texte             | Active/désactive l'interception des propriétés scalaires                        |
+| Sections imbriquées uniquement | Masque les sections toggles et texte — affiche uniquement les nested sections   |
+| URLs des endpoints             | Une entrée `clé url` par ligne — chaque endpoint a son propre slot localStorage |
+| Propriété racine (JSON)        | Chemin vers l'objet racine dans la réponse (notation pointée)                   |
+| Clé cache (avancé)             | Clé `localStorage` interne pour le cache des items                              |
+| Clé overrides (avancé)         | Clé `localStorage` interne pour les overrides de toggles                        |
 
 Chaque champ affiche un bouton **↺** dès qu'il diffère de la valeur par défaut de `config.js`. Les modifications prennent effet au prochain rechargement de la page.
 
@@ -98,11 +98,8 @@ var FF_CONFIG = {
   //   },
   // ],
 
-  // Si true, masque les sections auto-détectées (toggles et texte) dans le popup
-  onlyNestedSections: false,
-
   // Clés localStorage internes (optionnel — modifier en cas de conflit)
-  storageKeyLast:      "__ff_last_flags",
+  storageKeyLast: "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",
 };
 ```
@@ -132,6 +129,7 @@ nestedSections: [
 Le script traverse récursivement chaque niveau et construit une **clé composite** pour identifier chaque item feuille (`topicCode:subTopicCode:parameterCode`). Cette clé est affichée dans le popup et sert de clé d'override.
 
 **Exemple de réponse supportée :**
+
 ```json
 {
   "characteristics": {
@@ -142,7 +140,11 @@ Le script traverse récursivement chaque niveau et construit une **clé composit
           {
             "subTopicCode": "CAT_1",
             "subTopicParameters": [
-              { "parameterCode": "PARAM_X", "parameterValue": "OFF", "parameterCategoryCode": "3" }
+              {
+                "parameterCode": "PARAM_X",
+                "parameterValue": "OFF",
+                "parameterCategoryCode": "3"
+              }
             ]
           }
         ]
@@ -156,11 +158,11 @@ Avec `rootPath: "characteristics"` et la config ci-dessus, les items sont affich
 
 ### Exemples de `rootPath`
 
-| Structure de réponse | `rootPath` | Ce qui est détecté |
-|---|---|---|
-| `{ data: { flags: [...], title: "..." } }` | `"data"` | section `flags` (toggles) + champ `title` (texte) |
-| `{ response: { modules: [...] } }` | `"response"` | section `modules` (toggles) |
-| `{ config: { sections: { items: [...] } } }` | `"config.sections"` | section `items` (toggles) |
+| Structure de réponse                         | `rootPath`          | Ce qui est détecté                                |
+| -------------------------------------------- | ------------------- | ------------------------------------------------- |
+| `{ data: { flags: [...], title: "..." } }`   | `"data"`            | section `flags` (toggles) + champ `title` (texte) |
+| `{ response: { modules: [...] } }`           | `"response"`        | section `modules` (toggles)                       |
+| `{ config: { sections: { items: [...] } } }` | `"config.sections"` | section `items` (toggles)                         |
 
 ### Changer d'instance
 
@@ -176,10 +178,10 @@ Pour pointer sur un ou plusieurs endpoints :
 
 Chrome isole les extensions de la page via deux contextes JavaScript distincts :
 
-| Monde | Fichier | Accès |
-|---|---|---|
-| **MAIN** | `content-inject.js` | `window.fetch`, `XMLHttpRequest` de la page — peut modifier les requêtes réseau |
-| **ISOLATED** | `content-bridge.js` | APIs Chrome (`chrome.runtime`, `chrome.tabs`) — ne touche pas au JS de la page |
+| Monde        | Fichier             | Accès                                                                           |
+| ------------ | ------------------- | ------------------------------------------------------------------------------- |
+| **MAIN**     | `content-inject.js` | `window.fetch`, `XMLHttpRequest` de la page — peut modifier les requêtes réseau |
+| **ISOLATED** | `content-bridge.js` | APIs Chrome (`chrome.runtime`, `chrome.tabs`) — ne touche pas au JS de la page  |
 
 Les deux partagent le même **DOM** et le même **`localStorage`**, ce qui sert de canal de communication entre eux.
 
@@ -216,19 +218,19 @@ Quand l'app appelle un des endpoints configurés (`settingsUrls`) :
 
 ## Persistance des overrides (`localStorage`)
 
-| Clé | Contenu | Rôle |
-|---|---|---|
-| `__ff_last_flags_{key}` | `{ [sectionKey]: { idKey, valueKey, items } }` | sections de toggles détectées pour l'endpoint `key` — référence affichée dans le popup |
-| `__ff_last_text_{key}` | `{ [key]: value }` | valeurs scalaires originales pour l'endpoint `key` |
-| `__ff_last_nested_{key}` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'endpoint `key` |
-| `__ff_overrides` | `{ [sectionKey]: { [itemId]: boolean } }` | overrides de toggles par section — lu par `content-inject.js` |
-| `__ff_text_overrides` | `{ [key]: string }` | overrides de texte — lu par `content-inject.js` |
-| `__ff_nested_overrides` | `{ [compositeKey]: string }` | overrides imbriqués — lu par `content-inject.js` |
-| `__ff_settings_urls` | JSON (array de strings) | liste des endpoints à intercepter |
-| `__ff_root_path` | string | chemin vers l'objet racine dans le JSON |
-| `__ff_nested_sections` | JSON (array) | config `nestedSections` sérialisée — lue par `content-inject.js` |
-| `__ff_overrides_enabled` | `"true"` / `"false"` | activation des overrides de toggles |
-| `__ff_text_ovr_enabled` | `"true"` / `"false"` | activation des overrides de texte |
+| Clé                      | Contenu                                                              | Rôle                                                                                   |
+| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `__ff_last_flags_{key}`  | `{ [sectionKey]: { idKey, valueKey, items } }`                       | sections de toggles détectées pour l'endpoint `key` — référence affichée dans le popup |
+| `__ff_last_text_{key}`   | `{ [key]: value }`                                                   | valeurs scalaires originales pour l'endpoint `key`                                     |
+| `__ff_last_nested_{key}` | `{ [leafArrayKey]: { valueKey, items: [{ compositeKey, value }] } }` | items des nested sections pour l'endpoint `key`                                        |
+| `__ff_overrides`         | `{ [sectionKey]: { [itemId]: boolean } }`                            | overrides de toggles par section — lu par `content-inject.js`                          |
+| `__ff_text_overrides`    | `{ [key]: string }`                                                  | overrides de texte — lu par `content-inject.js`                                        |
+| `__ff_nested_overrides`  | `{ [compositeKey]: string }`                                         | overrides imbriqués — lu par `content-inject.js`                                       |
+| `__ff_settings_urls`     | JSON (array de strings)                                              | liste des endpoints à intercepter                                                      |
+| `__ff_root_path`         | string                                                               | chemin vers l'objet racine dans le JSON                                                |
+| `__ff_nested_sections`   | JSON (array)                                                         | config `nestedSections` sérialisée — lue par `content-inject.js`                       |
+| `__ff_overrides_enabled` | `"true"` / `"false"`                                                 | activation des overrides de toggles                                                    |
+| `__ff_text_ovr_enabled`  | `"true"` / `"false"`                                                 | activation des overrides de texte                                                      |
 
 > Les caches `__ff_last_*_{key}` sont écrits par `content-inject.js` lors de l'interception — `key` est la clé définie dans `settingsUrls`. `content-bridge.js` les merge tous pour les renvoyer au popup.
 
@@ -262,18 +264,18 @@ Le badge rouge (nombre d'overrides actifs) est mis à jour par `content-bridge.j
 
 ## Communication popup ↔ page (`content-bridge.js`)
 
-| Message | Paramètres | Action |
-|---|---|---|
-| `FETCH_FLAGS` | — | Lit les caches `localStorage` per-URL et les merge — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
-| `GET_STATE` | — | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
-| `SET_OVERRIDE` | `{ id, section, value }` | Écrit `overrides[section][id] = value` dans `localStorage` |
-| `CLEAR_OVERRIDE` | `{ id, section }` | Supprime un override de toggle individuel |
-| `SET_TEXT_OVERRIDE` | `{ key, value }` | Écrit `textOverrides[key] = value` dans `localStorage` |
-| `CLEAR_TEXT_OVERRIDE` | `{ key }` | Supprime un override texte individuel |
-| `SET_NESTED_OVERRIDE` | `{ key, value }` | Écrit `nestedOverrides[compositeKey] = value` dans `localStorage` |
-| `CLEAR_NESTED_OVERRIDE` | `{ key }` | Supprime un override imbriqué individuel |
-| `RESET_ALL` | — | Supprime `__ff_overrides`, `__ff_text_overrides` et `__ff_nested_overrides` |
-| `RELOAD_PAGE` | — | Appelle `window.location.reload()` |
+| Message                 | Paramètres               | Action                                                                                                                                           |
+| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FETCH_FLAGS`           | —                        | Lit les caches `localStorage` per-URL et les merge — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }` |
+| `GET_STATE`             | —                        | Lit `localStorage` — renvoie `{ lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides }`                                 |
+| `SET_OVERRIDE`          | `{ id, section, value }` | Écrit `overrides[section][id] = value` dans `localStorage`                                                                                       |
+| `CLEAR_OVERRIDE`        | `{ id, section }`        | Supprime un override de toggle individuel                                                                                                        |
+| `SET_TEXT_OVERRIDE`     | `{ key, value }`         | Écrit `textOverrides[key] = value` dans `localStorage`                                                                                           |
+| `CLEAR_TEXT_OVERRIDE`   | `{ key }`                | Supprime un override texte individuel                                                                                                            |
+| `SET_NESTED_OVERRIDE`   | `{ key, value }`         | Écrit `nestedOverrides[compositeKey] = value` dans `localStorage`                                                                                |
+| `CLEAR_NESTED_OVERRIDE` | `{ key }`                | Supprime un override imbriqué individuel                                                                                                         |
+| `RESET_ALL`             | —                        | Supprime `__ff_overrides`, `__ff_text_overrides` et `__ff_nested_overrides`                                                                      |
+| `RELOAD_PAGE`           | —                        | Appelle `window.location.reload()`                                                                                                               |
 
 > **Pourquoi `FETCH_FLAGS` passe par le content script ?**
 > Le popup est une page à part — ses requêtes `fetch` ne portent pas les cookies de session. Le content script, lui, s'exécute dans le contexte de la page et en hérite.

@@ -25,7 +25,6 @@ var FF_CONFIG = {
   //   },
   // ],
   // Si true, seules les sections imbriquées définies dans nestedSections sont surchargées (ignorer les propriétés détectées automatiquement à la racine)
-  onlyNestedSections: true,
   // Clés localStorage internes (modifier uniquement en cas de conflit)
   storageKeyLast: "__ff_last_flags",
   storageKeyOverrides: "__ff_overrides",

@@ -1,10 +1,18 @@
 const CONFIG_STORAGE_KEY = "__ff_config_settings";
 
 const SETTINGS_FIELDS = [
-  { key: "settingsUrls",        label: "URLs des endpoints (clé url, une par ligne)", type: "url-objects" },
-  { key: "rootPath",            label: "Propriété racine (JSON)" },
-  { key: "storageKeyLast",      label: "Clé cache (localStorage)", advanced: true },
-  { key: "storageKeyOverrides", label: "Clé overrides (localStorage)", advanced: true },
+  {
+    key: "settingsUrls",
+    label: "URLs des endpoints (clé url, une par ligne)",
+    type: "url-objects",
+  },
+  { key: "rootPath", label: "Propriété racine (JSON)" },
+  { key: "storageKeyLast", label: "Clé cache (localStorage)", advanced: true },
+  {
+    key: "storageKeyOverrides",
+    label: "Clé overrides (localStorage)",
+    advanced: true,
+  },
 ];
 
 function loadConfig() {
@@ -22,7 +30,10 @@ function saveConfig(config) {
 }
 
 function escapeAttr(str) {
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;");
 }
 
 function renderSettings(config) {
@@ -32,12 +43,11 @@ function renderSettings(config) {
     const toDisplayVal = (v) => {
       if (field.type === "url-objects" && Array.isArray(v))
         return v.map(({ key, url }) => `${key} ${url}`).join("\n");
-      if (field.type === "textarea" && Array.isArray(v))
-        return v.join("\n");
+      if (field.type === "textarea" && Array.isArray(v)) return v.join("\n");
       return String(v);
     };
-    const val        = toDisplayVal(config[field.key] ?? "");
-    const defVal     = toDisplayVal(FF_CONFIG[field.key] ?? "");
+    const val = toDisplayVal(config[field.key] ?? "");
+    const defVal = toDisplayVal(FF_CONFIG[field.key] ?? "");
     const isModified = val !== defVal;
     if (field.type === "textarea" || field.type === "url-objects") {
       return `
@@ -66,8 +76,8 @@ function renderSettings(config) {
       </div>`;
   };
 
-  const regular  = SETTINGS_FIELDS.filter((f) => !f.advanced);
-  const advanced = SETTINGS_FIELDS.filter((f) =>  f.advanced);
+  const regular = SETTINGS_FIELDS.filter((f) => !f.advanced);
+  const advanced = SETTINGS_FIELDS.filter((f) => f.advanced);
 
   const renderToggleRow = (label, key) => {
     const isOn = config[key] !== false;
@@ -88,8 +98,10 @@ function renderSettings(config) {
     <div class="settings-content">
       <div class="settings-section-divider">Overrides</div>
       ${renderToggleRow("Overrides de toggles", "overridesEnabled")}
-      ${renderToggleRow("Overrides de texte",   "textOverridesEnabled")}
-      ${renderToggleRow("Sections imbriquées uniquement", "onlyNestedSections")}
+      ${renderToggleRow("Overrides de texte", "textOverridesEnabled")}
+      <div class="settings-section-divider">Affichage</div>
+      ${renderToggleRow("Afficher les toggles ON/OFF", "showToggleSections")}
+      ${renderToggleRow("Afficher les textes", "showTextSections")}
       ${regular.map(renderField).join("")}
       <div class="settings-section-divider">Avancé</div>
       ${advanced.map(renderField).join("")}
@@ -98,9 +110,9 @@ function renderSettings(config) {
 
 // ── State ──────────────────────────────────────────────────────────────────
 
-let currentState  = null;
-let activeConfig  = null;
-let settingsOpen  = false;
+let currentState = null;
+let activeConfig = null;
+let settingsOpen = false;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -119,8 +131,15 @@ function msg(tabId, payload) {
 }
 
 function totalOverrides(overrides, textOverrides, nestedOverrides) {
-  const toggleCount = Object.values(overrides).reduce((sum, sec) => sum + Object.keys(sec).length, 0);
-  return toggleCount + Object.keys(textOverrides).length + Object.keys(nestedOverrides || {}).length;
+  const toggleCount = Object.values(overrides).reduce(
+    (sum, sec) => sum + Object.keys(sec).length,
+    0,
+  );
+  return (
+    toggleCount +
+    Object.keys(textOverrides).length +
+    Object.keys(nestedOverrides || {}).length
+  );
 }
 
 function filterState(state, query) {
@@ -131,18 +150,28 @@ function filterState(state, query) {
     const filteredItems = section.items.filter((item) =>
       String(item[section.idKey]).toLowerCase().includes(q),
     );
-    if (filteredItems.length) filteredSections[name] = { ...section, items: filteredItems };
+    if (filteredItems.length)
+      filteredSections[name] = { ...section, items: filteredItems };
   }
   const filteredNested = {};
-  for (const [name, { valueKey, items }] of Object.entries(state.lastNested || {})) {
-    const filteredItems = items.filter(({ compositeKey }) => compositeKey.toLowerCase().includes(q));
-    if (filteredItems.length) filteredNested[name] = { valueKey, items: filteredItems };
+  for (const [name, { valueKey, items }] of Object.entries(
+    state.lastNested || {},
+  )) {
+    const filteredItems = items.filter(({ compositeKey }) =>
+      compositeKey.toLowerCase().includes(q),
+    );
+    if (filteredItems.length)
+      filteredNested[name] = { valueKey, items: filteredItems };
   }
   return {
     ...state,
     lastSections: filteredSections,
     lastText: state.lastText
-      ? Object.fromEntries(Object.entries(state.lastText).filter(([k]) => k.toLowerCase().includes(q)))
+      ? Object.fromEntries(
+          Object.entries(state.lastText).filter(([k]) =>
+            k.toLowerCase().includes(q),
+          ),
+        )
       : null,
     lastNested: Object.keys(filteredNested).length ? filteredNested : null,
   };
@@ -171,7 +200,8 @@ function hideSettings() {
   document.getElementById("btn-settings").classList.remove("active");
   document.getElementById("btn-reset").style.display = "";
   if (currentState) {
-    const hasData = currentState.lastSections !== null || currentState.lastText !== null;
+    const hasData =
+      currentState.lastSections !== null || currentState.lastText !== null;
     document.getElementById("search-bar").classList.toggle("hidden", !hasData);
   }
 }
@@ -179,17 +209,27 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const onlyNested  = activeConfig.onlyNestedSections === true;
-  const visibleState = onlyNested ? { ...state, lastSections: null, lastText: null } : state;
-  const { lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides } = filterState(visibleState, query);
-  const searchBar  = document.getElementById("search-bar");
-  const main       = document.getElementById("main-content");
-  const statusBar  = document.getElementById("status-bar");
+  const showToggles = activeConfig.showToggleSections !== false;
+  const showText    = activeConfig.showTextSections    !== false;
+  const {
+    lastSections: rawSections,
+    overrides,
+    lastText: rawText,
+    textOverrides,
+    lastNested,
+    nestedOverrides,
+  } = filterState(state, query);
+  const lastSections = showToggles ? rawSections : null;
+  const lastText     = showText    ? rawText      : null;
+  const searchBar = document.getElementById("search-bar");
+  const main = document.getElementById("main-content");
+  const statusBar = document.getElementById("status-bar");
   const statusText = document.getElementById("status-text");
 
-  const hasData = Object.keys(lastSections || {}).length > 0
-    || lastText !== null
-    || (lastNested && Object.keys(lastNested).length > 0);
+  const hasData =
+    Object.keys(lastSections || {}).length > 0 ||
+    lastText !== null ||
+    (lastNested && Object.keys(lastNested).length > 0);
   searchBar.classList.toggle("hidden", !hasData);
 
   if (!hasData) {
@@ -216,7 +256,9 @@ function renderFlags(state, query = "") {
   main.innerHTML = "";
 
   // --- Toggle sections (arrays) ---
-  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(lastSections || {})) {
+  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(
+    lastSections || {},
+  )) {
     const sectionOverrides = overrides[sectionName] || {};
     const section = document.createElement("div");
     section.className = "category";
@@ -227,12 +269,12 @@ function renderFlags(state, query = "") {
     section.appendChild(header);
 
     for (const mod of items) {
-      const itemId      = mod[idKey];
+      const itemId = mod[idKey];
       const originalVal = mod[valueKey];
       const hasOverride = itemId in sectionOverrides;
       const effectiveVal = hasOverride ? sectionOverrides[itemId] : originalVal;
-      const isOn        = effectiveVal === true || effectiveVal === "ON";
-      const isLocked    = !!mod.locked;
+      const isOn = effectiveVal === true || effectiveVal === "ON";
+      const isLocked = !!mod.locked;
 
       const row = document.createElement("div");
       row.className = "flag-row";
@@ -276,10 +318,10 @@ function renderFlags(state, query = "") {
     section.appendChild(header);
 
     for (const [key, originalVal] of textEntries) {
-      const hasOverride  = key in textOverrides;
+      const hasOverride = key in textOverrides;
       const effectiveVal = hasOverride ? textOverrides[key] : originalVal;
       const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
-      const safeValue    = String(effectiveVal).replace(/"/g, "&quot;");
+      const safeValue = String(effectiveVal).replace(/"/g, "&quot;");
 
       const row = document.createElement("div");
       row.className = "flag-row";
@@ -307,7 +349,9 @@ function renderFlags(state, query = "") {
   }
 
   // --- Nested sections ---
-  for (const [sectionName, { valueKey, items }] of Object.entries(lastNested || {})) {
+  for (const [sectionName, { valueKey, items }] of Object.entries(
+    lastNested || {},
+  )) {
     const section = document.createElement("div");
     section.className = "category";
 
@@ -319,9 +363,9 @@ function renderFlags(state, query = "") {
     // Group by all key segments except the last (leaf)
     const groups = new Map();
     for (const item of items) {
-      const parts    = item.compositeKey.split(":");
+      const parts = item.compositeKey.split(":");
       const groupKey = parts.slice(0, -1).join(":");
-      const label    = parts[parts.length - 1];
+      const label = parts[parts.length - 1];
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey).push({ ...item, label });
     }
@@ -334,9 +378,11 @@ function renderFlags(state, query = "") {
       section.appendChild(groupHeader);
 
       for (const { compositeKey, value: originalVal, label } of groupItems) {
-        const hasOverride  = compositeKey in (nestedOverrides || {});
-        const effectiveVal = hasOverride ? nestedOverrides[compositeKey] : originalVal;
-        const isOnOff      = /^(on|off)$/i.test(String(originalVal));
+        const hasOverride = compositeKey in (nestedOverrides || {});
+        const effectiveVal = hasOverride
+          ? nestedOverrides[compositeKey]
+          : originalVal;
+        const isOnOff = /^(on|off)$/i.test(String(originalVal));
         const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
 
         const row = document.createElement("div");
@@ -359,9 +405,11 @@ function renderFlags(state, query = "") {
                   ${isOn ? "checked" : ""}>
                 <span class="slider"></span>
               </label>
-              ${hasOverride
-                ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
-                : '<span style="width:18px"></span>'}
+              ${
+                hasOverride
+                  ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
+                  : '<span style="width:18px"></span>'
+              }
             </div>`;
         } else {
           const safeValue = String(effectiveVal).replace(/"/g, "&quot;");
@@ -376,9 +424,11 @@ function renderFlags(state, query = "") {
                 data-nested-key="${escapeAttr(compositeKey)}"
                 data-original="${safeOriginal}"
                 value="${safeValue}">
-              ${hasOverride
-                ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
-                : '<span style="width:18px"></span>'}
+              ${
+                hasOverride
+                  ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
+                  : '<span style="width:18px"></span>'
+              }
             </div>`;
         }
 
@@ -424,38 +474,65 @@ async function init() {
   });
 
   // Settings: save on any change (text input blur or toggle click)
-  document.getElementById("settings-panel").addEventListener("change", async (e) => {
-    const input  = e.target.closest("input.settings-input, textarea.settings-input");
-    const toggle = e.target.closest("input.settings-toggle");
-    if (!input && !toggle) return;
+  document
+    .getElementById("settings-panel")
+    .addEventListener("change", async (e) => {
+      const input = e.target.closest(
+        "input.settings-input, textarea.settings-input",
+      );
+      const toggle = e.target.closest("input.settings-toggle");
+      if (!input && !toggle) return;
 
-    if (input) {
-      const lines = input.value.split("\n").map((s) => s.trim()).filter(Boolean);
-      const val = input.dataset.type === "url-objects"
-        ? lines.map((line) => { const i = line.indexOf(" "); return i > 0 ? { key: line.slice(0, i), url: line.slice(i + 1).trim() } : null; }).filter(Boolean)
-        : input.dataset.type === "array"
-          ? lines
-          : input.value;
-      activeConfig = { ...activeConfig, [input.dataset.key]: val };
-    }
-    if (toggle) activeConfig = { ...activeConfig, [toggle.dataset.key]: toggle.checked };
+      if (input) {
+        const lines = input.value
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const val =
+          input.dataset.type === "url-objects"
+            ? lines
+                .map((line) => {
+                  const i = line.indexOf(" ");
+                  return i > 0
+                    ? { key: line.slice(0, i), url: line.slice(i + 1).trim() }
+                    : null;
+                })
+                .filter(Boolean)
+            : input.dataset.type === "array"
+              ? lines
+              : input.value;
+        activeConfig = { ...activeConfig, [input.dataset.key]: val };
+      }
+      if (toggle)
+        activeConfig = {
+          ...activeConfig,
+          [toggle.dataset.key]: toggle.checked,
+        };
 
-    await saveConfig(activeConfig);
-    renderSettings(activeConfig);
-    const reloadText = document.getElementById("reload-text");
-    reloadText.textContent = "Rechargez pour appliquer les paramètres";
-    document.getElementById("reload-bar").classList.remove("hidden");
-  });
+      await saveConfig(activeConfig);
+      renderSettings(activeConfig);
+
+      const changedKey = (toggle ?? input).dataset.key;
+      const displayOnlyKeys = new Set(["showToggleSections", "showTextSections"]);
+      if (displayOnlyKeys.has(changedKey)) {
+        if (currentState) renderFlags(currentState, searchQuery());
+      } else {
+        document.getElementById("reload-text").textContent = "Rechargez pour appliquer les paramètres";
+        document.getElementById("reload-bar").classList.remove("hidden");
+      }
+    });
 
   // Settings: reset individual field to FF_CONFIG default
-  document.getElementById("settings-panel").addEventListener("click", async (e) => {
-    const btn = e.target.closest(".btn-field-reset");
-    if (!btn) return;
-    const key = btn.dataset.key;
-    activeConfig = { ...activeConfig, [key]: FF_CONFIG[key] };
-    await saveConfig(activeConfig);
-    renderSettings(activeConfig);
-  });
+  document
+    .getElementById("settings-panel")
+    .addEventListener("click", async (e) => {
+      const btn = e.target.closest(".btn-field-reset");
+      if (!btn) return;
+      const key = btn.dataset.key;
+      activeConfig = { ...activeConfig, [key]: FF_CONFIG[key] };
+      await saveConfig(activeConfig);
+      renderSettings(activeConfig);
+    });
 
   showLoading();
 
@@ -487,7 +564,7 @@ async function init() {
   document.addEventListener("change", async (e) => {
     if (!e.target.matches('input[type="checkbox"][data-id]')) return;
     const { id, section, original } = e.target.dataset;
-    const newValue     = e.target.checked;
+    const newValue = e.target.checked;
     const originalBool = original === "true";
     if (newValue === originalBool) {
       await msg(tabId, { type: "CLEAR_OVERRIDE", id, section });
@@ -514,7 +591,7 @@ async function init() {
   // Nested ON/OFF toggle change
   document.addEventListener("change", async (e) => {
     if (!e.target.matches("input.nested-toggle-input")) return;
-    const key      = e.target.dataset.nestedKey;
+    const key = e.target.dataset.nestedKey;
     const original = e.target.dataset.original;
     const newValue = e.target.checked ? "ON" : "OFF";
     if (newValue === original.toUpperCase()) {
@@ -528,7 +605,7 @@ async function init() {
   // Nested input change
   document.addEventListener("change", async (e) => {
     if (!e.target.matches("input.nested-override-input")) return;
-    const key      = e.target.dataset.nestedKey;
+    const key = e.target.dataset.nestedKey;
     const original = e.target.dataset.original;
     const newValue = e.target.value;
     if (newValue === original) {
@@ -550,14 +627,20 @@ async function init() {
   // Reset individual text
   document.addEventListener("click", async (e) => {
     if (!e.target.matches(".reset-flag-btn[data-key]")) return;
-    await msg(tabId, { type: "CLEAR_TEXT_OVERRIDE", key: e.target.dataset.key });
+    await msg(tabId, {
+      type: "CLEAR_TEXT_OVERRIDE",
+      key: e.target.dataset.key,
+    });
     await refresh(tabId);
   });
 
   // Reset individual nested
   document.addEventListener("click", async (e) => {
     if (!e.target.matches(".reset-flag-btn[data-nested-key]")) return;
-    await msg(tabId, { type: "CLEAR_NESTED_OVERRIDE", key: e.target.dataset.nestedKey });
+    await msg(tabId, {
+      type: "CLEAR_NESTED_OVERRIDE",
+      key: e.target.dataset.nestedKey,
+    });
     await refresh(tabId);
   });
 
