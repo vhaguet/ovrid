@@ -182,15 +182,11 @@
     // Cache nested sections — collected here (MAIN world) since content-bridge.js can't fetch cross-origin
     try {
       const { nestedSections } = getCfg();
-      console.log("[ovrid] nestedSections", nestedSections);
       if (Array.isArray(nestedSections) && nestedSections.length) {
         const lastNested = {};
         for (const ns of nestedSections) {
-          const result = collectNested(rootObj, ns);
-          console.log("[ovrid] collectNested result", JSON.stringify(result).slice(0, 200));
-          Object.assign(lastNested, result);
+          Object.assign(lastNested, collectNested(rootObj, ns));
         }
-        console.log("[ovrid] lastNested keys", Object.keys(lastNested), "items count", Object.values(lastNested).map(s => s.items?.length));
         if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED, JSON.stringify(lastNested));
       }
     } catch (e) { console.error("[ovrid] nested cache error", e); }

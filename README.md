@@ -145,7 +145,7 @@ Le script traverse récursivement chaque niveau et construit une **clé composit
 }
 ```
 
-Avec `rootPath: "characteristics"` et la config ci-dessus, la clé composite `THEME_A:CAT_1:PARAM_X` apparaît dans le popup avec un champ texte éditable.
+Avec `rootPath: "characteristics"` et la config ci-dessus, les items sont affichés dans le popup **groupés par `subTopicCode`**, avec uniquement `parameterCode` comme libellé. Si la valeur est `"ON"` ou `"OFF"`, un bouton toggle est affiché ; sinon, un champ texte éditable.
 
 ### Exemples de `rootPath`
 

@@ -292,30 +292,74 @@ function renderFlags(state, query = "") {
     header.textContent = `${sectionName} — ${valueKey}`;
     section.appendChild(header);
 
-    for (const { compositeKey, value: originalVal } of items) {
-      const hasOverride  = compositeKey in (nestedOverrides || {});
-      const effectiveVal = hasOverride ? nestedOverrides[compositeKey] : originalVal;
-      const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
-      const safeValue    = String(effectiveVal).replace(/"/g, "&quot;");
+    // Group by all key segments except the last (leaf)
+    const groups = new Map();
+    for (const item of items) {
+      const parts    = item.compositeKey.split(":");
+      const groupKey = parts.slice(0, -1).join(":");
+      const label    = parts[parts.length - 1];
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push({ ...item, label });
+    }
 
-      const row = document.createElement("div");
-      row.className = "flag-row";
-      row.innerHTML = `
-        <div class="flag-info">
-          <div class="flag-name${hasOverride ? " overridden" : ""}">${compositeKey}</div>
-          ${hasOverride ? `<div class="original-badge">Valeur API : ${safeOriginal}</div>` : ""}
-        </div>
-        <div class="text-wrap">
-          <input type="text"
-            class="text-override-input nested-override-input${hasOverride ? " overridden" : ""}"
-            data-nested-key="${escapeAttr(compositeKey)}"
-            data-original="${safeOriginal}"
-            value="${safeValue}">
-          ${hasOverride
-            ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
-            : '<span style="width:18px"></span>'}
-        </div>`;
-      section.appendChild(row);
+    for (const [groupKey, groupItems] of groups) {
+      const groupHeader = document.createElement("div");
+      groupHeader.className = "nested-group-header";
+      const gParts = groupKey.split(":");
+      groupHeader.textContent = gParts[gParts.length - 1];
+      section.appendChild(groupHeader);
+
+      for (const { compositeKey, value: originalVal, label } of groupItems) {
+        const hasOverride  = compositeKey in (nestedOverrides || {});
+        const effectiveVal = hasOverride ? nestedOverrides[compositeKey] : originalVal;
+        const isOnOff      = /^(on|off)$/i.test(String(originalVal));
+        const safeOriginal = String(originalVal).replace(/"/g, "&quot;");
+
+        const row = document.createElement("div");
+        row.className = "flag-row";
+
+        if (isOnOff) {
+          const isOn = String(effectiveVal).toUpperCase() === "ON";
+          row.innerHTML = `
+            <div class="flag-info">
+              <div class="flag-name${hasOverride ? " overridden" : ""}">${label}</div>
+              ${hasOverride ? `<div class="original-badge">Valeur API : ${safeOriginal}</div>` : ""}
+            </div>
+            <div class="toggle-wrap">
+              <span class="toggle-label ${isOn ? "on" : "off"}">${isOn ? "ON" : "OFF"}</span>
+              <label class="toggle">
+                <input type="checkbox"
+                  class="nested-toggle-input"
+                  data-nested-key="${escapeAttr(compositeKey)}"
+                  data-original="${safeOriginal}"
+                  ${isOn ? "checked" : ""}>
+                <span class="slider"></span>
+              </label>
+              ${hasOverride
+                ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
+                : '<span style="width:18px"></span>'}
+            </div>`;
+        } else {
+          const safeValue = String(effectiveVal).replace(/"/g, "&quot;");
+          row.innerHTML = `
+            <div class="flag-info">
+              <div class="flag-name${hasOverride ? " overridden" : ""}">${label}</div>
+              ${hasOverride ? `<div class="original-badge">Valeur API : ${safeOriginal}</div>` : ""}
+            </div>
+            <div class="text-wrap">
+              <input type="text"
+                class="text-override-input nested-override-input${hasOverride ? " overridden" : ""}"
+                data-nested-key="${escapeAttr(compositeKey)}"
+                data-original="${safeOriginal}"
+                value="${safeValue}">
+              ${hasOverride
+                ? `<button class="reset-flag-btn" data-nested-key="${escapeAttr(compositeKey)}" title="Réinitialiser">✕</button>`
+                : '<span style="width:18px"></span>'}
+            </div>`;
+        }
+
+        section.appendChild(row);
+      }
     }
 
     main.appendChild(section);
@@ -431,6 +475,20 @@ async function init() {
       await msg(tabId, { type: "CLEAR_TEXT_OVERRIDE", key });
     } else {
       await msg(tabId, { type: "SET_TEXT_OVERRIDE", key, value: newValue });
+    }
+    await refresh(tabId);
+  });
+
+  // Nested ON/OFF toggle change
+  document.addEventListener("change", async (e) => {
+    if (!e.target.matches("input.nested-toggle-input")) return;
+    const key      = e.target.dataset.nestedKey;
+    const original = e.target.dataset.original;
+    const newValue = e.target.checked ? "ON" : "OFF";
+    if (newValue === original.toUpperCase()) {
+      await msg(tabId, { type: "CLEAR_NESTED_OVERRIDE", key });
+    } else {
+      await msg(tabId, { type: "SET_NESTED_OVERRIDE", key, value: newValue });
     }
     await refresh(tabId);
   });
