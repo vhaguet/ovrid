@@ -53,8 +53,8 @@
 
   function getUrlIndex(url) {
     if (typeof url !== "string") return -1;
-    const { settingsUrls } = getCfg();
-    return settingsUrls.findIndex((u) => matchesUrl(url, u));
+    const urls = JSON.parse(localStorage.getItem("__ff_settings_urls") || "[]");
+    return urls.findIndex((u) => matchesUrl(url, u));
   }
 
   function isTarget(url) {
@@ -73,7 +73,6 @@
     try { return JSON.parse(localStorage.getItem(KEY_NESTED_OVR) || "{}"); } catch { return {}; }
   }
 
-  // Collect all leaf items from a nested array structure (mirrors traverseNested in content-bridge.js)
   function collectNested(rootObj, ns) {
     const { path, idKeys, valueKey } = ns;
     const arrayKeys  = path.split(".");
@@ -142,9 +141,8 @@
       ?? Object.keys(obj).find((k) => typeof obj[k] === "boolean");
   }
 
-  // Apply both array (toggle) overrides and text overrides — returns patched JSON or null if unchanged
   function applyOverrides(json, urlIdx) {
-    const { rootPath, overridesEnabled, textOverridesEnabled } = getCfg();
+    const { rootPath, overridesEnabled, textOverridesEnabled, nestedSections } = getCfg();
     let result = json;
     let changed = false;
 
@@ -181,7 +179,6 @@
       }
     }
 
-    // Cache for popup — keyed by URL index so each endpoint has its own slot
     const sfx = `_${urlIdx}`;
     if (Object.keys(detectedSections).length) {
       localStorage.setItem(KEY_LAST + sfx, JSON.stringify(detectedSections));
@@ -190,19 +187,14 @@
       localStorage.setItem(KEY_LAST_TEXT + sfx, JSON.stringify(detectedText));
     }
 
-    // Cache nested sections — collected here (MAIN world) since content-bridge.js can't fetch cross-origin
     try {
-      const { nestedSections } = getCfg();
-      if (Array.isArray(nestedSections) && nestedSections.length) {
+      if (nestedSections.length) {
         const lastNested = {};
-        for (const ns of nestedSections) {
-          Object.assign(lastNested, collectNested(rootObj, ns));
-        }
+        for (const ns of nestedSections) Object.assign(lastNested, collectNested(rootObj, ns));
         if (Object.keys(lastNested).length) localStorage.setItem(KEY_LAST_NESTED + sfx, JSON.stringify(lastNested));
       }
     } catch (e) { console.error("[ovrid] nested cache error", e); }
 
-    // Text overrides
     if (textOverridesEnabled && Object.keys(textOverrides).length) {
       const rootCopy = { ...getByPath(result, rootPath) };
       let textChanged = false;
@@ -218,15 +210,13 @@
       }
     }
 
-    // Nested overrides
-    const { nestedSections } = getCfg();
     const nestedOverrides = getNestedOverrides();
     if (nestedSections.length && Object.keys(nestedOverrides).length) {
-      let rootObj    = getByPath(result, rootPath);
-      let newRootObj = rootObj;
-      for (const ns of nestedSections) newRootObj = patchNested(newRootObj, ns, nestedOverrides);
-      if (newRootObj !== rootObj) {
-        result  = setByPath(result, rootPath, newRootObj);
+      let patchRoot = getByPath(result, rootPath);
+      let newRoot   = patchRoot;
+      for (const ns of nestedSections) newRoot = patchNested(newRoot, ns, nestedOverrides);
+      if (newRoot !== patchRoot) {
+        result  = setByPath(result, rootPath, newRoot);
         changed = true;
       }
     }
@@ -260,13 +250,13 @@
 
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (...args) {
-    const _urlIdx = getUrlIndex(this._ffUrl ?? "");
-    if (_urlIdx >= 0) {
+    const urlIdx = getUrlIndex(this._ffUrl ?? "");
+    if (urlIdx >= 0) {
       this.addEventListener("readystatechange", function () {
         if (this.readyState !== 4) return;
         try {
           const json = JSON.parse(this.responseText);
-          const patched = applyOverrides(json, _urlIdx);
+          const patched = applyOverrides(json, urlIdx);
           if (!patched) return;
           const body = JSON.stringify(patched);
           Object.defineProperty(this, "responseText", {

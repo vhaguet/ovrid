@@ -29,10 +29,9 @@ function renderSettings(config) {
   const panel = document.getElementById("settings-panel");
 
   const renderField = (field) => {
-    const raw        = config[field.key] ?? "";
-    const val        = field.type === "textarea" && Array.isArray(raw) ? raw.join("\n") : String(raw);
-    const defRaw     = FF_CONFIG[field.key] ?? "";
-    const defVal     = field.type === "textarea" && Array.isArray(defRaw) ? defRaw.join("\n") : String(defRaw);
+    const toDisplayVal = (v) => field.type === "textarea" && Array.isArray(v) ? v.join("\n") : String(v);
+    const val        = toDisplayVal(config[field.key] ?? "");
+    const defVal     = toDisplayVal(FF_CONFIG[field.key] ?? "");
     const isModified = val !== defVal;
     if (field.type === "textarea") {
       return `
@@ -174,16 +173,17 @@ function hideSettings() {
 // ── Flags rendering ────────────────────────────────────────────────────────
 
 function renderFlags(state, query = "") {
-  const { lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides } = filterState(state, query);
+  const onlyNested  = activeConfig.onlyNestedSections === true;
+  const visibleState = onlyNested ? { ...state, lastSections: null, lastText: null } : state;
+  const { lastSections, overrides, lastText, textOverrides, lastNested, nestedOverrides } = filterState(visibleState, query);
   const searchBar  = document.getElementById("search-bar");
   const main       = document.getElementById("main-content");
   const statusBar  = document.getElementById("status-bar");
   const statusText = document.getElementById("status-text");
 
-  const onlyNested = activeConfig?.onlyNestedSections === true;
-  const hasData = (!onlyNested && state.lastSections && Object.keys(state.lastSections).length > 0)
-    || (!onlyNested && state.lastText !== null)
-    || (state.lastNested && Object.keys(state.lastNested).length > 0);
+  const hasData = Object.keys(lastSections || {}).length > 0
+    || lastText !== null
+    || (lastNested && Object.keys(lastNested).length > 0);
   searchBar.classList.toggle("hidden", !hasData);
 
   if (!hasData) {
@@ -210,8 +210,7 @@ function renderFlags(state, query = "") {
   main.innerHTML = "";
 
   // --- Toggle sections (arrays) ---
-  const visibleSections = onlyNested ? {} : (lastSections || {});
-  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(visibleSections)) {
+  for (const [sectionName, { idKey, valueKey, items }] of Object.entries(lastSections || {})) {
     const sectionOverrides = overrides[sectionName] || {};
     const section = document.createElement("div");
     section.className = "category";
@@ -260,7 +259,7 @@ function renderFlags(state, query = "") {
   }
 
   // --- Text section ---
-  const textEntries = !onlyNested && lastText ? Object.entries(lastText) : [];
+  const textEntries = lastText ? Object.entries(lastText) : [];
   if (textEntries.length > 0) {
     const section = document.createElement("div");
     section.className = "category";
